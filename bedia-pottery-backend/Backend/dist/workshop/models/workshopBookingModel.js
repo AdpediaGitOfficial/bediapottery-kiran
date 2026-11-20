@@ -79,6 +79,10 @@ const workshopBookingSchema = new mongoose_1.Schema({
     totalPeople: { type: Number, required: true },
     totalAmount: { type: Number, required: true },
     bookingNumber: { type: String, unique: true },
+    // A pending booking keeps its seats until this time (set when the checkout is
+    // created, a few minutes shy of the Stripe session's own expiry). Once it
+    // passes, the seats are free again unless the booking was paid in the meantime.
+    holdExpiresAt: { type: Date },
     userId: {
         type: mongoose_1.default.Schema.Types.ObjectId,
         ref: 'users',

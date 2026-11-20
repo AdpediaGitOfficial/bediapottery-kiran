@@ -23,6 +23,28 @@ const blockedTimeRepo_1 = require("../../studio/repos/blockedTimeRepo");
  * different workshop consumes the same seats — e.g. the 06:30 PM - 08:30 PM
  * event slot shares the room with 06:00 PM - 07:30 PM and 08:00 PM - 09:30 PM.
  */
+/**
+ * How long a pending booking keeps its seats. It matches the lifetime of the
+ * Stripe Checkout session (30 minutes is Stripe's own minimum), so a customer
+ * can never pay after their seats have been released.
+ */
+const SEAT_HOLD_MINUTES = 30;
+exports.SEAT_HOLD_MINUTES = SEAT_HOLD_MINUTES;
+const seatHoldExpiry = (from = Date.now()) => new Date(from + SEAT_HOLD_MINUTES * 60 * 1000);
+exports.seatHoldExpiry = seatHoldExpiry;
+/**
+ * Which bookings take seats: confirmed ones, plus pending ones whose hold has not
+ * run out. Counting the pending holds is what stops two people reserving the last
+ * seats at the same time. Pending bookings without a hold (anything made before
+ * holds existed) take no seats, exactly as before.
+ */
+const seatHoldMatch = (now = new Date()) => ({
+    $or: [
+        { bookingStatus: { $in: ['confirmed', 'paid'] } },
+        { bookingStatus: 'pending', paymentStatus: 'pending', holdExpiresAt: { $gt: now } },
+    ],
+});
+exports.seatHoldMatch = seatHoldMatch;
 const getOverlappingSlotIds = async (range) => {
     const workshops = await workshopModel_1.default.find({
         isDeleted: false,
@@ -480,7 +502,7 @@ const fetchWorkshopAvailability = async (data) => {
             $match: {
                 bookingDate: bookingDate,
                 slotId: { $in: matchingSlotIds },
-                bookingStatus: { $in: ['confirmed', 'paid'] },
+                ...seatHoldMatch(),
                 isDeleted: false,
             },
         },
@@ -690,7 +712,7 @@ const fetchPotteryWorkshopAvailability = async (data) => {
             $match: {
                 bookingDate,
                 slotId: { $in: matchingSlotIds },
-                bookingStatus: { $in: ['confirmed', 'paid'] },
+                ...seatHoldMatch(),
                 isDeleted: false,
             },
         },
@@ -780,9 +802,7 @@ const getSlotBookedCount = async (bookingDate, startTime, endTime) => {
                 slotId: {
                     $in: matchingSlotIds,
                 },
-                bookingStatus: {
-                    $in: ['confirmed', 'paid'],
-                },
+                ...seatHoldMatch(),
                 isDeleted: false,
             },
         },
@@ -814,6 +834,84 @@ const updateOrderPaymentStatus = async (orderId, data) => {
     return updatedOrder;
 };
 exports.updateOrderPaymentStatus = updateOrderPaymentStatus;
+/**
+ * Marks an order paid only if it is not paid yet, in one atomic step. Returns the
+ * updated order, or null when it was already paid (or does not exist). The Stripe
+ * webhook uses this so a retried delivery cannot run the post-payment work twice.
+ */
+const markOrderPaidIfPendingRepo = async (orderId, paymentId) => {
+    return await workshopOrders_1.default.findOneAndUpdate({ _id: orderId, paymentStatus: { $ne: 'paid' } }, { paymentStatus: 'paid', paymentId }, { new: true });
+};
+exports.markOrderPaidIfPendingRepo = markOrderPaidIfPendingRepo;
+const orderExistsRepo = async (orderId) => {
+    return !!(await workshopOrders_1.default.exists({ _id: orderId }));
+};
+exports.orderExistsRepo = orderExistsRepo;
+/** Puts an order back to pending so Stripe's retry can process it again. */
+const revertOrderToPendingRepo = async (orderId) => {
+    return await workshopOrders_1.default.updateOne({ _id: orderId }, { paymentStatus: 'pending' });
+};
+exports.revertOrderToPendingRepo = revertOrderToPendingRepo;
+const findOrderByCheckoutKeyRepo = async (checkoutKey) => {
+    return await workshopOrders_1.default.findOne({ checkoutKey, isDeleted: false });
+};
+exports.findOrderByCheckoutKeyRepo = findOrderByCheckoutKeyRepo;
+/** Frees a checkout key whose order can no longer be paid, so the key can be used again. */
+const releaseCheckoutKeyRepo = async (orderId) => {
+    return await workshopOrders_1.default.updateOne({ _id: orderId }, { $unset: { checkoutKey: 1 } });
+};
+exports.releaseCheckoutKeyRepo = releaseCheckoutKeyRepo;
+const saveOrderStripeSessionRepo = async (orderId, session) => {
+    return await workshopOrders_1.default.updateOne({ _id: orderId }, {
+        stripeSessionId: session.id,
+        stripeSessionUrl: session.url,
+        holdExpiresAt: session.holdExpiresAt,
+    });
+};
+exports.saveOrderStripeSessionRepo = saveOrderStripeSessionRepo;
+/** A retry of the same cart may carry updated contact details; keep the bookings in step. */
+const updateBookingsCustomerRepo = async (bookingIds, customer) => {
+    return await workshopBookingModel_1.default.updateMany({ _id: { $in: bookingIds }, paymentStatus: 'pending' }, { customer });
+};
+exports.updateBookingsCustomerRepo = updateBookingsCustomerRepo;
+/**
+ * Throws away a checkout that never reached a payable Stripe session: the
+ * bookings and the order are soft-deleted (so they stop showing in the dashboard)
+ * and their seat holds end immediately. Never touches anything already paid.
+ */
+const discardPendingCheckoutRepo = async ({ bookingIds = [], orderId }) => {
+    if (bookingIds.length) {
+        await workshopBookingModel_1.default.updateMany({ _id: { $in: bookingIds }, paymentStatus: { $ne: 'paid' } }, { isDeleted: true, holdExpiresAt: new Date(0) });
+    }
+    if (orderId) {
+        await workshopOrders_1.default.updateOne({ _id: orderId, paymentStatus: { $ne: 'paid' } }, { isDeleted: true, holdExpiresAt: new Date(0), $unset: { checkoutKey: 1 } });
+    }
+};
+exports.discardPendingCheckoutRepo = discardPendingCheckoutRepo;
+/**
+ * People holding seats in the slot (and every slot overlapping it) whose booking
+ * was created at or before `upToBookingId`, that booking included. Run right
+ * after a booking is written, it settles a race between two simultaneous
+ * checkouts: bookings are ordered by _id, so exactly one of two competing
+ * requests sees the overflow and backs out, never both and never neither.
+ */
+const getSeatsHeldUpToBookingRepo = async (bookingDate, startTime, endTime, upToBookingId) => {
+    const matchingSlotIds = await getOverlappingSlotIds({ startTime, endTime });
+    const aggregation = await workshopBookingModel_1.default.aggregate([
+        {
+            $match: {
+                bookingDate,
+                slotId: { $in: matchingSlotIds },
+                _id: { $lte: upToBookingId },
+                ...seatHoldMatch(),
+                isDeleted: false,
+            },
+        },
+        { $group: { _id: null, totalPeople: { $sum: '$totalPeople' } } },
+    ]);
+    return aggregation.length > 0 ? aggregation[0].totalPeople : 0;
+};
+exports.getSeatsHeldUpToBookingRepo = getSeatsHeldUpToBookingRepo;
 const getOrderByIdRepo = async (orderId) => {
     return await workshopOrders_1.default.findOne({ _id: orderId, isDeleted: false }).populate({
         path: 'items.bookingId',
@@ -1132,9 +1230,7 @@ const fetchPotteryWorkshopCapacity = async (data) => {
                 slotId: {
                     $in: matchingSlotIds,
                 },
-                bookingStatus: {
-                    $in: ['confirmed', 'paid'],
-                },
+                ...seatHoldMatch(),
                 isDeleted: false,
             },
         },

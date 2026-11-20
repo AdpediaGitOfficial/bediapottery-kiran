@@ -66,6 +66,14 @@ const orderSchema = new mongoose_1.Schema({
         default: 'pending',
     },
     invoiceNumber: String,
+    // Sent by the checkout page and reused on every retry of the same cart, so a
+    // double click or a Back-and-retry gets the same order instead of a new one.
+    // Unique (but only where set), so two requests racing with the same key cannot
+    // both create an order.
+    checkoutKey: { type: String, unique: true, sparse: true },
+    stripeSessionId: String,
+    stripeSessionUrl: String,
+    holdExpiresAt: Date,
     paymentGatewayResponse: mongoose_1.Schema.Types.Mixed,
     isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });

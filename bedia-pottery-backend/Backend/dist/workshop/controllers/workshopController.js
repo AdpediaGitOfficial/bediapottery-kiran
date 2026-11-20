@@ -180,6 +180,10 @@ const processGiftBooking = async (giftBooking) => {
 };
 const stripeWebhookController = async (req, res) => {
     console.log('WEBHOOK HIT');
+    // Set once this delivery has marked an order paid, so a failure before the
+    // bookings are updated can hand the order back to Stripe's retry.
+    let claimedOrderId = null;
+    let postPaymentWorkStarted = false;
     try {
         const sig = req.headers['stripe-signature'];
         if (!sig) {
@@ -207,16 +211,20 @@ const stripeWebhookController = async (req, res) => {
                 console.log('ORDER ID NOT FOUND');
                 return res.json({ received: true });
             }
-            // Single source of truth for the order: updateOrderPaymentStatus returns
-            // the updated document (findByIdAndUpdate, new: true), so we reuse it
-            // instead of re-fetching the same order multiple times.
-            const order = await (0, workshopRepo_1.updateOrderPaymentStatus)(orderId, {
-                paymentStatus: 'paid',
-                paymentId: paymentIntent.id,
-            });
+            // Claim the order: it is marked paid only if it is not paid already, in one
+            // atomic step. Stripe delivers events at least once (and retries slow or
+            // failed ones), so the same payment can arrive twice — only the first
+            // delivery may confirm the bookings and send the emails. The returned
+            // document is also the single source of truth for the order below.
+            const order = await (0, workshopRepo_1.markOrderPaidIfPendingRepo)(orderId, paymentIntent.id);
             if (!order) {
+                if (await (0, workshopRepo_1.orderExistsRepo)(orderId)) {
+                    console.log('ORDER ALREADY PROCESSED, skipping:', orderId);
+                    return res.json({ received: true });
+                }
                 throw new Error('Order not found');
             }
+            claimedOrderId = order._id;
             const bookingIds = order.items.map((item) => item.bookingId);
             // Mark the bookings paid, then load the (now-updated) booking documents.
             await (0, workshopRepo_1.updateBookingsPaymentStatusByIds)(bookingIds, 'paid');
@@ -279,12 +287,21 @@ const stripeWebhookController = async (req, res) => {
             const giftBookings = bookings.filter((b) => b.bookingType === 'gift');
             // The order-confirmation email and the per-gift voucher work are
             // independent, so run them all concurrently instead of one after another.
-            await Promise.all([
-                bookingType === 'gift' || bookingType === 'pottery' || bookingType === 'events'
-                    ? (0, workshopBookingMailService_1.sendWorkshopBookingConfirmationMail)({ order: orderData, bookingsData: bookingDetails })
-                    : (0, workshopBookingMailService_1.sendPriveBookingConfirmationMail)({ order: orderData, bookingsData: bookingDetails }),
-                ...giftBookings.map((giftBooking) => processGiftBooking(giftBooking)),
-            ]);
+            // From here on the payment is fully recorded. A failing email must not make
+            // this handler answer with an error: Stripe would retry the delivery and
+            // the customer would get the emails that did work a second time.
+            postPaymentWorkStarted = true;
+            try {
+                await Promise.all([
+                    bookingType === 'gift' || bookingType === 'pottery' || bookingType === 'events'
+                        ? (0, workshopBookingMailService_1.sendWorkshopBookingConfirmationMail)({ order: orderData, bookingsData: bookingDetails })
+                        : (0, workshopBookingMailService_1.sendPriveBookingConfirmationMail)({ order: orderData, bookingsData: bookingDetails }),
+                    ...giftBookings.map((giftBooking) => processGiftBooking(giftBooking)),
+                ]);
+            }
+            catch (mailError) {
+                console.error('Post-payment email/voucher step failed for order', String(order._id), mailError);
+            }
             try {
                 if (order?.userId) {
                     const userId = order.userId.toString();
@@ -302,6 +319,11 @@ const stripeWebhookController = async (req, res) => {
     }
     catch (error) {
         console.error('Stripe webhook error:', error.message);
+        // The bookings were not confirmed, so let Stripe's retry run the whole job
+        // again — it would otherwise find the order already paid and skip it.
+        if (claimedOrderId && !postPaymentWorkStarted) {
+            await (0, workshopRepo_1.revertOrderToPendingRepo)(claimedOrderId).catch((revertError) => console.error('Could not revert order after webhook failure:', revertError));
+        }
         return res.status(400).send(`Webhook Error: ${error.message}`);
     }
 };

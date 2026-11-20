@@ -494,7 +494,7 @@ const resolveFrontendUrl = (bookingTypes = []) => {
     // Trailing slashes are easy to leave in a .env and would build "//success".
     return (baseUrl || process.env.FRONTEND_URL)?.replace(/\/+$/, '');
 };
-const createOrderPaymentSessionUseCase = async (order, bookingTypes = []) => {
+const createOrderPaymentSessionUseCase = async (order, bookingTypes = [], options = {}) => {
     const frontendUrl = resolveFrontendUrl(bookingTypes);
     const session = await stripe_1.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -523,6 +523,9 @@ const createOrderPaymentSessionUseCase = async (order, bookingTypes = []) => {
         },
         success_url: `${frontendUrl}/success?orderId=${order._id.toString()}`,
         cancel_url: `${frontendUrl}/failure`,
+        // Optional: end the session when the seat hold ends, so nobody can pay for
+        // seats that have already been given back.
+        ...(options.expiresAt ? { expires_at: options.expiresAt } : {}),
     });
     console.log('SESSION CREATED');
     // console.log(session.id);
@@ -1193,6 +1196,40 @@ const checkoutCartUseCase = async (data) => {
 };
 exports.checkoutCartUseCase = checkoutCartUseCase;
 /**
+ * Looks up the checkout a checkoutKey already belongs to.
+ *   - none, or one whose seat hold has run out  -> null (the caller starts a new one)
+ *   - one already paid                           -> refuse, the booking is done
+ *   - one waiting for payment                    -> its existing Stripe URL
+ * A request that arrives while the first is still creating the Stripe session
+ * waits a few seconds for the URL instead of starting a second checkout.
+ */
+const resolveExistingCheckout = async (checkoutKey, customer) => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+        const existing = await (0, workshopRepo_1.findOrderByCheckoutKeyRepo)(checkoutKey);
+        if (!existing)
+            return null;
+        if (existing.paymentStatus === 'paid') {
+            throw new appError_1.default('This booking has already been paid.', 409);
+        }
+        const holdStillActive = existing.holdExpiresAt && existing.holdExpiresAt.getTime() > Date.now();
+        if (existing.paymentStatus !== 'pending' || !holdStillActive) {
+            // Nobody can pay this one any more; free the key for a fresh checkout.
+            await (0, workshopRepo_1.releaseCheckoutKeyRepo)(existing._id);
+            return null;
+        }
+        if (existing.stripeSessionUrl) {
+            // The visitor may have corrected their details before retrying.
+            if (customer) {
+                await (0, workshopRepo_1.updateBookingsCustomerRepo)(existing.items.map((item) => item.bookingId), customer);
+            }
+            return { checkoutUrl: existing.stripeSessionUrl, orderId: existing._id };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new appError_1.default('Your booking is already being processed. Please wait a moment.', 409);
+};
+exports.resolveExistingCheckout = resolveExistingCheckout;
+/**
  * Checkout for the pottery front end, which keeps the cart in the browser and
  * never asks the visitor to sign in. Same bookings -> order -> Stripe session
  * flow as `checkoutCartUseCase`, with two differences:
@@ -1212,9 +1249,20 @@ exports.checkoutCartUseCase = checkoutCartUseCase;
  */
 const potteryBookingUseCase = async (data) => {
     const { customer, workshops } = data;
+    const checkoutKey = typeof data.checkoutKey === 'string' && data.checkoutKey.length > 0 ? data.checkoutKey : null;
+    // Everything this request writes, so a failure part-way can take it all back.
+    const createdBookingIds = [];
+    let createdOrderId = null;
     try {
         if (!Array.isArray(workshops) || workshops.length === 0) {
             throw new appError_1.default('No workshops provided', 400);
+        }
+        // Same cart submitted again (double click, Back from Stripe, a retry): hand
+        // back the checkout that already exists instead of creating another one.
+        if (checkoutKey) {
+            const existingCheckout = await resolveExistingCheckout(checkoutKey, customer);
+            if (existingCheckout)
+                return existingCheckout;
         }
         const entries = workshops;
         // The confirmed-booking count read per entry below cannot see the rest of
@@ -1317,6 +1365,7 @@ const potteryBookingUseCase = async (data) => {
             const grandTotal = totalAmount + taxAmount;
             preparedEntries.push({
                 entry,
+                slot,
                 isGift,
                 validatedItems,
                 totalPeople,
@@ -1327,6 +1376,7 @@ const potteryBookingUseCase = async (data) => {
             });
         }
         // PASS 2 — everything checked out, so write the bookings and the order.
+        const holdExpiresAt = (0, workshopRepo_1.seatHoldExpiry)();
         const orderNumber = `ORD-${Date.now()}`;
         let orderSubtotal = 0;
         let orderTaxAmount = 0;
@@ -1357,7 +1407,21 @@ const potteryBookingUseCase = async (data) => {
                     : undefined,
                 bookingStatus: 'pending',
                 paymentStatus: 'pending',
+                // Holds the seats while the customer is on the Stripe page.
+                holdExpiresAt,
             });
+            createdBookingIds.push(booking._id);
+            // The capacity check above cannot see a checkout that is being created at
+            // this very moment. Now that this booking holds its seats, count again;
+            // if it pushed the slot over capacity, this request is the one that
+            // loses the race and gives everything back.
+            if (!isGift && prepared.slot) {
+                const heldUpToThis = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(entry.bookingDate, prepared.slot.startTime, prepared.slot.endTime, booking._id);
+                const heldBeforeThis = heldUpToThis - totalPeople;
+                if (heldUpToThis > (0, slotCapacity_1.resolveSlotCapacity)(entry.bookingType, heldBeforeThis)) {
+                    throw new appError_1.default('Slot capacity exceeded', 400);
+                }
+            }
             orderSubtotal += totalAmount;
             orderTaxAmount += taxAmount;
             orderGrandTotal += grandTotal;
@@ -1370,6 +1434,8 @@ const potteryBookingUseCase = async (data) => {
             });
         }
         // Create order — no userId, so the webhook's cart-clear step simply skips it.
+        // The unique checkoutKey is what makes two simultaneous submits of the same
+        // cart end up with one order: the second insert is refused.
         const order = await (0, workshopRepo_1.createWorkshopOrderRepo)({
             orderNumber,
             items: orderItems,
@@ -1380,16 +1446,34 @@ const potteryBookingUseCase = async (data) => {
             currency: 'AED',
             paymentStatus: 'pending',
             isDeleted: false,
+            holdExpiresAt,
+            ...(checkoutKey ? { checkoutKey } : {}),
         });
         if (!order) {
             throw new appError_1.default('Order creation failed', 400);
         }
+        createdOrderId = order._id;
         // Create Stripe session AFTER DB save.
         // A request can hold several entries with different types — pass them all so
         // the redirect resolves against the whole order, not just one leg of it.
-        const stripeSession = await (0, exports.createOrderPaymentSessionUseCase)(order, preparedEntries.map((prepared) => prepared.entry.bookingType));
+        // The session ends when the seat hold does (Stripe needs at least 30 minutes).
+        const stripeSession = await (0, exports.createOrderPaymentSessionUseCase)(order, preparedEntries.map((prepared) => prepared.entry.bookingType), { expiresAt: Math.floor(holdExpiresAt.getTime() / 1000) });
         if (!stripeSession.url) {
             throw new appError_1.default('Stripe session failed', 400);
+        }
+        try {
+            await (0, workshopRepo_1.saveOrderStripeSessionRepo)(order._id, {
+                id: stripeSession.id,
+                url: stripeSession.url,
+                holdExpiresAt,
+            });
+        }
+        catch (saveError) {
+            // The order is about to be discarded; make sure its payment link dies with it.
+            await stripe_1.stripe.checkout.sessions
+                .expire(stripeSession.id)
+                .catch((expireError) => console.error('Could not expire Stripe session:', expireError));
+            throw saveError;
         }
         return {
             checkoutUrl: stripeSession.url,
@@ -1397,6 +1481,21 @@ const potteryBookingUseCase = async (data) => {
         };
     }
     catch (error) {
+        // Whatever this request wrote can never be paid for now, so release the seats
+        // and hide it from the dashboard instead of leaving a stray pending booking.
+        if (createdBookingIds.length || createdOrderId) {
+            await (0, workshopRepo_1.discardPendingCheckoutRepo)({
+                bookingIds: createdBookingIds,
+                orderId: createdOrderId,
+            }).catch((cleanupError) => console.error('Checkout cleanup failed:', cleanupError));
+        }
+        // Lost the race to another request carrying the same checkoutKey: that one
+        // owns the order, so return its checkout rather than failing.
+        if (checkoutKey && error?.code === 11000 && error?.keyPattern?.checkoutKey) {
+            const existingCheckout = await resolveExistingCheckout(checkoutKey, customer);
+            if (existingCheckout)
+                return existingCheckout;
+        }
         // Preserve specific validation errors (no workshops, invalid slot/option,
         // capacity, gift errors, etc.); only wrap truly unexpected failures.
         if (error instanceof appError_1.default) {
