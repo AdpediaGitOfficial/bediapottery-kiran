@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const testimonialController_1 = require("../controllers/testimonialController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllTestimonials_1 = require("../routevalidators/getAllTestimonials");
+const createTestimonial_1 = require("../routevalidators/createTestimonial");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllTestimonials_1.getAllTestimonialsSchema), testimonialController_1.getAllTestimonials);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllTestimonials_1.getAllTestimonialsSchema), testimonialController_1.getAllTestimonialsForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createTestimonial_1.createTestimonialSchema), testimonialController_1.createTestimonial);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createTestimonial_1.createTestimonialSchema), testimonialController_1.updateTestimonialById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, testimonialController_1.deleteTestimonialById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, testimonialController_1.getTestimonialById);
+exports.default = router;

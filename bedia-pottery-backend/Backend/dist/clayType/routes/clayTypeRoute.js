@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const clayTypeController_1 = require("../controllers/clayTypeController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllClayType_1 = require("../routevalidators/getAllClayType");
+const createClayType_1 = require("../routevalidators/createClayType");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllClayType_1.getAllClayTypeSchema), clayTypeController_1.getAllClayTypes);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllClayType_1.getAllClayTypeSchema), clayTypeController_1.getAllClayTypesForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createClayType_1.createClayTypeSchema), sanitizeMiddleware_1.default, clayTypeController_1.createClayType);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createClayType_1.createClayTypeSchema), sanitizeMiddleware_1.default, clayTypeController_1.updateClayTypeById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, clayTypeController_1.deleteClayTypeById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, clayTypeController_1.getClayTypeById);
+exports.default = router;

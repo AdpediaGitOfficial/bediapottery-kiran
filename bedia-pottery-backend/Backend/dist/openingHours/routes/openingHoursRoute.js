@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const openingHoursController_1 = require("../controllers/openingHoursController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllopeningHours_1 = require("../routevalidators/getAllopeningHours");
+const createOpeningHours_1 = require("../routevalidators/createOpeningHours");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllopeningHours_1.getAllOpeningHoursSchema), openingHoursController_1.getAllOpeningHours);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllopeningHours_1.getAllOpeningHoursSchema), openingHoursController_1.getAllOpeningHoursForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createOpeningHours_1.createOpeningHoursSchema), sanitizeMiddleware_1.default, openingHoursController_1.createOpeningHours);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createOpeningHours_1.createOpeningHoursSchema), sanitizeMiddleware_1.default, openingHoursController_1.updateOpeningHoursById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, openingHoursController_1.deleteOpeningHoursById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, openingHoursController_1.getOpeningHoursById);
+exports.default = router;

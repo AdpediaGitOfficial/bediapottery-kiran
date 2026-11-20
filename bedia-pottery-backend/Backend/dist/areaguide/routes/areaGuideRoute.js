@@ -1,0 +1,23 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const areaGuideController_1 = require("../controllers/areaGuideController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const createAreaGuide_1 = require("../routevalidators/createAreaGuide");
+const getAllAreaGuides_1 = require("../routevalidators/getAllAreaGuides");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/name', areaGuideController_1.getAreaGuideByName);
+router.get('/all', (0, validate_1.validateQuery)(getAllAreaGuides_1.getAllAreaGuideSchema), areaGuideController_1.getAllAreaGuides);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllAreaGuides_1.getAllAreaGuideSchema), areaGuideController_1.getAllAreaGuidesForAdmin);
+router.get('/slug/:slug', areaGuideController_1.getAreaGuideBySlug);
+router.get('/meta/:slug', areaGuideController_1.getAreaGuideMetaBySlug);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createAreaGuide_1.createAreaGuideSchema), areaGuideController_1.createAreaGuide);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createAreaGuide_1.createAreaGuideSchema), areaGuideController_1.updateAreaGuideById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, areaGuideController_1.deleteAreaGuideById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, areaGuideController_1.getAreaGuideById);
+exports.default = router;

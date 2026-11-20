@@ -1,0 +1,23 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const createProperty_1 = require("../routevalidators/createProperty");
+const validate_1 = require("../../middleware/validate");
+const communitycontroller_1 = require("../controllers/communitycontroller");
+const getAllCommunityProjects_1 = require("../routevalidators/getAllCommunityProjects");
+const router = (0, express_1.Router)();
+router.post('/create', authMiddleware_1.userAuthMiddleware, communitycontroller_1.createCommunity);
+router.get('/all', communitycontroller_1.getAllCommunities);
+router.get('/:slug', communitycontroller_1.getCommunityBySlug);
+router.put('/:id', communitycontroller_1.updateCommunity);
+router.delete('/:id', communitycontroller_1.deleteCommunity);
+router.post('/project/:communityId', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createProperty_1.communityPropertyBodySchema), communitycontroller_1.addNewLaunchProject);
+router.put('/project/:communityId/:projectSlug', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createProperty_1.communityPropertyBodySchema), communitycontroller_1.updateNewLaunchProject);
+router.get('/all-community-projects', (0, validate_1.validateQuery)(getAllCommunityProjects_1.getCommunityProjectsSchema), communitycontroller_1.getAllCommunityProjects);
+router.get('/community-projects/:communitySlug/:slug', communitycontroller_1.getCommunityProjectBySlug);
+exports.default = router;

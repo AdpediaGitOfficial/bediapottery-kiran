@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const galleryController_1 = require("../controllers/galleryController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllGallery_1 = require("../routevalidators/getAllGallery");
+const createGallery_1 = require("../routevalidators/createGallery");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllGallery_1.getAllGallerySchema), galleryController_1.getAllGalleries);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllGallery_1.getAllGallerySchema), galleryController_1.getAllGalleriesForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createGallery_1.createGallerySchema), sanitizeMiddleware_1.default, galleryController_1.createGallery);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createGallery_1.createGallerySchema), sanitizeMiddleware_1.default, galleryController_1.updateGalleryById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, galleryController_1.deleteGalleryById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, galleryController_1.getGalleryById);
+exports.default = router;

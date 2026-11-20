@@ -1,0 +1,21 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const commentController_1 = require("../controllers/commentController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const createComment_1 = require("../routevalidators/createComment");
+const updateComment_1 = require("../routevalidators/updateComment");
+const getAllComments_1 = require("../routevalidators/getAllComments");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/post/:postId', (0, validate_1.validateQuery)(getAllComments_1.getAllCommentsSchema), commentController_1.getCommentsByPostId);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createComment_1.commentBodySchema), commentController_1.createComment);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(updateComment_1.commentUpdateBodySchema), commentController_1.updateCommentById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, commentController_1.deleteCommentById);
+router.post('/:id/like', authMiddleware_1.userAuthMiddleware, commentController_1.likeComment);
+router.post('/:id/unlike', authMiddleware_1.userAuthMiddleware, commentController_1.unlikeComment);
+exports.default = router;

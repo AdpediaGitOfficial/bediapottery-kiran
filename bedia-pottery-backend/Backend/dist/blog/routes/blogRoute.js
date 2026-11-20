@@ -1,0 +1,25 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const blogController_1 = require("../controllers/blogController");
+const multer_1 = __importDefault(require("../../middleware/multer"));
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAdminAll_1 = require("../routevalidators/getAdminAll");
+const getAllBlogs_1 = require("../routevalidators/getAllBlogs");
+const createBlog_1 = require("../routevalidators/createBlog");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllBlogs_1.getAllBlogsSchema), blogController_1.getAllBlogs);
+router.get('/slug/:slug', blogController_1.getBlogBySlug);
+router.get('/meta/:slug', blogController_1.getBlogMetaBySlug);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAdminAll_1.getAdminAllBlogsSchema), blogController_1.getAllBlogsForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createBlog_1.blogBodySchema), blogController_1.createBlog);
+router.post('/xml', multer_1.default.multipleFileUpload(), blogController_1.fetchFromXml);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createBlog_1.blogBodySchema), blogController_1.updateBlogById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, blogController_1.deleteBlogById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, blogController_1.getBlogById);
+exports.default = router;

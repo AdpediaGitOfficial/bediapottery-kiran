@@ -1,0 +1,22 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const googleReviewController_1 = require("../controllers/googleReviewController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAdminAll_1 = require("../routevalidators/getAdminAll");
+const getAllGoogleReview_1 = require("../routevalidators/getAllGoogleReview");
+const createGoogleReview_1 = require("../routevalidators/createGoogleReview");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllGoogleReview_1.getAllGoogleReviewsSchema), googleReviewController_1.getAllGoogleReviews);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAdminAll_1.getAdminAllGoogleReviewsSchema), googleReviewController_1.getAllGoogleReviewsForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createGoogleReview_1.googleReviewBodySchema), googleReviewController_1.createGoogleReview);
+router.post('/sync', authMiddleware_1.userAuthMiddleware, googleReviewController_1.syncGoogleReviews);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, googleReviewController_1.updateGoogleReviewById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, googleReviewController_1.deleteGoogleReviewById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, googleReviewController_1.getGoogleReviewById);
+exports.default = router;

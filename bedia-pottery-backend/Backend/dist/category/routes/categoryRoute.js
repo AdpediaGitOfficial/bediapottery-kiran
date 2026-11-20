@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const categoryController_1 = require("../controllers/categoryController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllCategory_1 = require("../routevalidators/getAllCategory");
+const createCategory_1 = require("../routevalidators/createCategory");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllCategory_1.getAllCategorySchema), categoryController_1.getAllCategories);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllCategory_1.getAllCategorySchema), categoryController_1.getAllCategoriesForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createCategory_1.createCategorySchema), sanitizeMiddleware_1.default, categoryController_1.createCategory);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createCategory_1.createCategorySchema), sanitizeMiddleware_1.default, categoryController_1.updateCategoryById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, categoryController_1.deleteCategoryById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, categoryController_1.getCategoryById);
+exports.default = router;

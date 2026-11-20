@@ -1,0 +1,22 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const faqController_1 = require("../controllers/faqController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAdminAll_1 = require("../routevalidators/getAdminAll");
+const getAllFaqs_1 = require("../routevalidators/getAllFaqs");
+const createFaq_1 = require("../routevalidators/createFaq");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllFaqs_1.getAllFaqsSchema), faqController_1.getAllFaqs);
+router.get('/category/:category', faqController_1.getFaqsByCategory);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAdminAll_1.getAdminAllFaqsSchema), faqController_1.getAllFaqsForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createFaq_1.faqBodySchema), faqController_1.createFaq);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createFaq_1.faqBodySchema), faqController_1.updateFaqById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, faqController_1.deleteFaqById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, faqController_1.getFaqById);
+exports.default = router;

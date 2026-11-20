@@ -1,0 +1,25 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const termsAndConditionController_1 = require("../controllers/termsAndConditionController");
+const multer_1 = __importDefault(require("../../middleware/multer"));
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAdminAll_1 = require("../routevalidators/getAdminAll");
+const getAllTermsAndCondition_1 = require("../routevalidators/getAllTermsAndCondition");
+const createTermsAndCondition_1 = require("../routevalidators/createTermsAndCondition");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllTermsAndCondition_1.getAllTermsAndConditionsSchema), termsAndConditionController_1.getAllTermsAndConditions);
+router.get('/slug/:slug', termsAndConditionController_1.getTermsAndConditionBySlug);
+router.get('/meta/:slug', termsAndConditionController_1.getTermsAndConditionMetaBySlug);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAdminAll_1.getAdminAllTermsAndConditionsSchema), termsAndConditionController_1.getAllTermsAndConditionsForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createTermsAndCondition_1.termsAndConditionBodySchema), termsAndConditionController_1.createTermsAndCondition);
+router.post('/xml', multer_1.default.multipleFileUpload(), termsAndConditionController_1.fetchFromXml);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createTermsAndCondition_1.termsAndConditionBodySchema), termsAndConditionController_1.updateTermsAndConditionById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, termsAndConditionController_1.deleteTermsAndConditionById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, termsAndConditionController_1.getTermsAndConditionById);
+exports.default = router;

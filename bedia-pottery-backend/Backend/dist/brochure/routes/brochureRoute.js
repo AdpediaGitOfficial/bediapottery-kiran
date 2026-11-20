@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const brochureController_1 = require("../controllers/brochureController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllBrochure_1 = require("../routevalidators/getAllBrochure");
+const createBrochure_1 = require("../routevalidators/createBrochure");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllBrochure_1.getAllBrochureSchema), brochureController_1.getAllBrochures);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllBrochure_1.getAllBrochureSchema), brochureController_1.getAllBrochuresForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createBrochure_1.createBrochureSchema), sanitizeMiddleware_1.default, brochureController_1.createBrochure);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createBrochure_1.createBrochureSchema), sanitizeMiddleware_1.default, brochureController_1.updateBrochureById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, brochureController_1.deleteBrochureById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, brochureController_1.getBrochureById);
+exports.default = router;

@@ -1,0 +1,251 @@
+swagger: '3.0.0'
+info:
+  title: ServiceType Model API
+  description: API related to ServiceType models
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+    description: Local server
+  - url: https://3lionsgroup.ae/
+    description: Live server
+paths:
+  /serviceType/all:
+    get:
+      summary: get all serviceTypes
+      description: Endpoint to get all serviceTypes
+      tags:
+        - ServiceType Model
+      parameters:
+        # - name: search
+        #   in: query
+        #   description: keyword for search
+        #   required: false
+        #   schema:
+        #     type: string
+        #     example: john
+        - name: page
+          in: query
+          description: page  number for pagination
+          required: false
+          schema:
+            type: number
+            example: 1
+        - name: limit
+          in: query
+          description: limit  for pagination
+          required: false
+          schema:
+            type: number
+            example: 10
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Fetched serviceTypes Successfully
+                  result:
+                    type: string
+                    example: []
+  /serviceType/adminAll:
+    get:
+      summary: get all serviceTypes
+      description: Endpoint to get all serviceTypes
+      tags:
+        - ServiceType Model
+      security:
+        - JWT: []
+      parameters:
+        - name: search
+          in: query
+          description: keyword for search
+          required: false
+          schema:
+            type: string
+            example: award
+        - name: page
+          in: query
+          description: page  number for pagination
+          required: false
+          schema:
+            type: number
+            example: 1
+        - name: limit
+          in: query
+          description: limit  for pagination
+          required: false
+          schema:
+            type: number
+            example: 10
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Fetched serviceTypes Successfully
+                  result:
+                    type: string
+                    example: []
+  /serviceType:
+    post:
+      summary: Create serviceType
+      description: Endpoint to create serviceType
+      tags:
+        - ServiceType Model
+      security:
+        - JWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                isActive:
+                  type: boolean
+              required:
+                - title
+
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Created serviceType successfully
+                  result:
+                    type: boolean
+                    example: true
+
+  /serviceType/{id}:
+    get:
+      summary: get serviceType by id
+      description: Endpoint to get a serviceType detail by id
+      tags:
+        - ServiceType Model
+      security:
+        - JWT: []
+      parameters:
+        - name: id
+          in: path
+          description: serviceType Id
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Fetched serviceType Successfully
+                  result:
+                    type: string
+                    example: []
+    put:
+      summary: update serviceType by id
+      description: Endpoint to update serviceType by id
+      tags:
+        - ServiceType Model
+      security:
+        - JWT: []
+      parameters:
+        - name: id
+          in: path
+          description: serviceType Id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                isActive:
+                  type: boolean
+              required:
+                - title
+
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Updated serviceType successfully
+                  result:
+                    type: boolean
+                    example: true
+    delete:
+      summary: delete serviceType by id
+      description: Endpoint to delete serviceType a serviceType by id
+      tags:
+        - ServiceType Model
+      security:
+        - JWT: []
+      parameters:
+        - name: id
+          in: path
+          description: serviceType Id
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Deleted serviceType successfully
+                  result:
+                    type: boolean
+                    example: true

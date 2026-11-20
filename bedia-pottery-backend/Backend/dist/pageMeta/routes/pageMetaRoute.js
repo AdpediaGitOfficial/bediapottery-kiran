@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const pageMetaController_1 = require("../controllers/pageMetaController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllMetaData_1 = require("../routevalidators/getAllMetaData");
+const createMetaData_1 = require("../routevalidators/createMetaData");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllMetaData_1.getAllMetaDataSchema), pageMetaController_1.getAllPageMetasForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createMetaData_1.createPageMetaSchema), pageMetaController_1.createPageMeta);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createMetaData_1.createPageMetaSchema), pageMetaController_1.updatePageMetaById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, pageMetaController_1.deletePageMetaById);
+router.post('/page-data', sanitizeMiddleware_1.default, pageMetaController_1.getPageMetaByUrl);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, pageMetaController_1.getPageMetaById);
+exports.default = router;

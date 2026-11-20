@@ -1,0 +1,21 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const guideController_1 = require("../controllers/guideController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getSingleGuide_1 = require("../routevalidators/getSingleGuide");
+const getAllGuide_1 = require("../routevalidators/getAllGuide");
+const createGuide_1 = require("../routevalidators/createGuide");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/', (0, validate_1.validateQuery)(getSingleGuide_1.getSingleGuideSchema), guideController_1.getSingleGuide);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllGuide_1.getAllGuideSchema), guideController_1.getAllGuidesForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createGuide_1.createGuideSchema), sanitizeMiddleware_1.default, guideController_1.createGuide);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createGuide_1.createGuideSchema), sanitizeMiddleware_1.default, guideController_1.updateGuideById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, guideController_1.deleteGuideById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, guideController_1.getGuideById);
+exports.default = router;

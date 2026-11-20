@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const serviceTypeController_1 = require("../controllers/serviceTypeController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllServiceType_1 = require("../routevalidators/getAllServiceType");
+const createServiceType_1 = require("../routevalidators/createServiceType");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllServiceType_1.getAllServiceTypeSchema), serviceTypeController_1.getAllServiceTypes);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllServiceType_1.getAllServiceTypeSchema), serviceTypeController_1.getAllServiceTypesForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createServiceType_1.createServiceTypeSchema), sanitizeMiddleware_1.default, serviceTypeController_1.createServiceType);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createServiceType_1.createServiceTypeSchema), sanitizeMiddleware_1.default, serviceTypeController_1.updateServiceTypeById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, serviceTypeController_1.deleteServiceTypeById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, serviceTypeController_1.getServiceTypeById);
+exports.default = router;

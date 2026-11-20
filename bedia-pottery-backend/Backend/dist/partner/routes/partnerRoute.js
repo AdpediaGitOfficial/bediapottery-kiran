@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const partnerController_1 = require("../controllers/partnerController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllPartners_1 = require("../routevalidators/getAllPartners");
+const createPartner_1 = require("../routevalidators/createPartner");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllPartners_1.getAllPartnersSchema), partnerController_1.getAllPartners);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllPartners_1.getAllPartnersSchema), partnerController_1.getAllPartnersForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createPartner_1.createPartnerSchema), partnerController_1.createPartner);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createPartner_1.createPartnerSchema), partnerController_1.updatePartnerById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, partnerController_1.deletePartnerById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, partnerController_1.getPartnerById);
+exports.default = router;

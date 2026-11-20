@@ -1,0 +1,22 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const serviceController_1 = require("../controllers/serviceController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllServices_1 = require("../routevalidators/getAllServices");
+const createService_1 = require("../routevalidators/createService");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllServices_1.getAllServiceSchema), serviceController_1.getAllServices);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllServices_1.getAllServiceSchema), serviceController_1.getAllServicesForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createService_1.createServiceSchema), sanitizeMiddleware_1.default, serviceController_1.createService);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createService_1.createServiceSchema), sanitizeMiddleware_1.default, serviceController_1.updateServiceById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, serviceController_1.deleteServiceById);
+router.get('/bySlug/:slug', serviceController_1.getServiceBySlug);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, serviceController_1.getServiceById);
+router.get('/dashboard/counts', serviceController_1.getDashboardCounts);
+exports.default = router;

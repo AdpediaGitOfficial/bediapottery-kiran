@@ -1,0 +1,26 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const careerController_1 = require("../controllers/careerController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllCareers_1 = require("../routevalidators/getAllCareers");
+const multer_1 = __importDefault(require("../../middleware/multer"));
+const createCareer_1 = require("../routevalidators/createCareer");
+const createJobApplication_1 = require("../routevalidators/createJobApplication");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllCareers_1.getAllCareerSchema), careerController_1.getAllCareers);
+router.get('/job-application/all', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllCareers_1.getAllCareerSchema), careerController_1.getAllJobApplications);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllCareers_1.getAllCareerSchema), careerController_1.getAllCareersForAdmin);
+router.post('/job-application', sanitizeMiddleware_1.default, multer_1.default.singleFileUpload('resume'), (0, validate_1.validateReqBody)(createJobApplication_1.createJobApplicationSchema), careerController_1.createJobApplication);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createCareer_1.createCareerSchema), careerController_1.createCareer);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createCareer_1.createCareerSchema), careerController_1.updateCareerById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, careerController_1.deleteCareerById);
+router.get('/slug/:slug', careerController_1.getCareerBySlug);
+router.get('/meta/:slug', careerController_1.getCareerMetaBySlug);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, careerController_1.getCareerById);
+exports.default = router;

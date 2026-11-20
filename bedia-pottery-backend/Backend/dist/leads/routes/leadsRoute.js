@@ -1,0 +1,24 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const createLeadController_1 = require("../controllers/createLeadController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const createLead_1 = require("../routevalidators/createLead");
+const questionnaireLead_1 = require("../routevalidators/questionnaireLead");
+const getLeadByDate_1 = require("../routevalidators/getLeadByDate");
+const createLeadQuery_1 = require("../routevalidators/createLeadQuery");
+const createReportLead_1 = require("../routevalidators/createReportLead");
+const createListPropertyLead_1 = require("../routevalidators/createListPropertyLead");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.post('/', (0, validate_1.validateQuery)(createLeadQuery_1.createLeadQuerySchema), (0, validate_1.validateReqBody)(createLead_1.createLeadSchema), sanitizeMiddleware_1.default, createLeadController_1.createLead);
+router.post('/report', (0, validate_1.validateReqBody)(createReportLead_1.createReportLeadSchema), sanitizeMiddleware_1.default, createLeadController_1.createReportLead);
+router.post('/list-property', (0, validate_1.validateReqBody)(createListPropertyLead_1.createListPropertyLeadSchema), sanitizeMiddleware_1.default, createLeadController_1.createListPropertyLead);
+router.post('/questionnaire', (0, validate_1.validateReqBody)(questionnaireLead_1.questionnaireLeadSchema), sanitizeMiddleware_1.default, createLeadController_1.createQuestionnaireLead);
+router.get('/all', authMiddleware_1.userAuthMiddleware, createLeadController_1.getAllLeads);
+router.get('/fetch-by-date', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getLeadByDate_1.getLeadByDateSchema), createLeadController_1.getLeadsByDate);
+exports.default = router;

@@ -1,0 +1,27 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const userController_1 = require("../controllers/userController");
+const authentication_1 = require("../../middleware/authentication");
+const rateLimiter_1 = require("../../middleware/rateLimiter");
+const userRequest_1 = require("../requests/userRequest");
+const router = (0, express_1.Router)();
+router.post('/register', userRequest_1.userRegisterValidation, userController_1.registerUser);
+router.post('/user-login', userRequest_1.loginValidation, userController_1.userLogin);
+router.post('/forgot-password', rateLimiter_1.loginLimiter, userRequest_1.forgotPasswordValidation, userController_1.forgotPassword);
+router.post('/reset-password', rateLimiter_1.loginLimiter, userRequest_1.resetPasswordValidation, userController_1.resetPassword);
+router.post('/verify-otp', userRequest_1.verifyOtpValidation, userController_1.verifyOtp);
+router.post('/upload-avatar/:studentId', authentication_1.authenticateUser, userController_1.uploadAvatar);
+router.post('/send-otp', userRequest_1.sendOtpValidation, userController_1.sendOtp);
+router.get('/profile/:userId', authentication_1.authenticateUser, userRequest_1.getProfileValidation, userController_1.getProfile);
+router.put('/profile-update/:userId', authentication_1.authenticateUser, userRequest_1.userUpdateValidation, userController_1.updateProfile);
+router.put('/change-password', authentication_1.authenticateUser, userRequest_1.changePasswordValidation, userController_1.changePassword);
+router.post('/logout', authentication_1.authenticateUser, userRequest_1.logoutValidation, userController_1.logout);
+router.post('/delete-account', authentication_1.authenticateUser, userController_1.deleteAccount);
+//Admin apis
+router.post('/login', userRequest_1.loginValidation, userController_1.login);
+router.get('/all', authentication_1.authenticateAdmin, userController_1.getUsers);
+router.post('/register-admin', userRequest_1.adminRegisterValidation, userController_1.registerAdmin);
+router.get('/:id', authentication_1.authenticateAdmin, userController_1.getUserById);
+router.delete('/:userId', authentication_1.authenticateAdmin, userController_1.deleteUser);
+exports.default = router;

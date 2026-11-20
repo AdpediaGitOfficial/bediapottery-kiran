@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const achievementController_1 = require("../controllers/achievementController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllAchievement_1 = require("../routevalidators/getAllAchievement");
+const createAchievement_1 = require("../routevalidators/createAchievement");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllAchievement_1.getAllAchievementSchema), achievementController_1.getAllAchievements);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllAchievement_1.getAllAchievementSchema), achievementController_1.getAllAchievementsForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createAchievement_1.createAchievementSchema), sanitizeMiddleware_1.default, achievementController_1.createAchievement);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateReqBody)(createAchievement_1.createAchievementSchema), sanitizeMiddleware_1.default, achievementController_1.updateAchievementById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, achievementController_1.deleteAchievementById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, achievementController_1.getAchievementById);
+exports.default = router;

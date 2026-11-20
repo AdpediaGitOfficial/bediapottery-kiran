@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const careerFooterController_1 = require("../controllers/careerFooterController");
+const sanitizeMiddleware_1 = __importDefault(require("../../middleware/sanitizeMiddleware"));
+const validate_1 = require("../../middleware/validate");
+const getAllCareerFooter_1 = require("../routevalidators/getAllCareerFooter");
+const createCareerFooter_1 = require("../routevalidators/createCareerFooter");
+const authMiddleware_1 = require("../../middleware/auth/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/all', (0, validate_1.validateQuery)(getAllCareerFooter_1.getAllCareerFootersSchema), careerFooterController_1.getAllCareerFooters);
+router.get('/adminAll', authMiddleware_1.userAuthMiddleware, (0, validate_1.validateQuery)(getAllCareerFooter_1.getAllCareerFootersSchema), careerFooterController_1.getAllCareerFootersForAdmin);
+router.post('/', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createCareerFooter_1.createCareerFooterSchema), careerFooterController_1.createCareerFooter);
+router.put('/:id', authMiddleware_1.userAuthMiddleware, sanitizeMiddleware_1.default, (0, validate_1.validateReqBody)(createCareerFooter_1.createCareerFooterSchema), careerFooterController_1.updateCareerFooterById);
+router.delete('/:id', authMiddleware_1.userAuthMiddleware, careerFooterController_1.deleteCareerFooterById);
+router.get('/:id', authMiddleware_1.userAuthMiddleware, careerFooterController_1.getCareerFooterById);
+exports.default = router;
