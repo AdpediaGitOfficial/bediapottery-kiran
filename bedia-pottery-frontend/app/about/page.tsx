@@ -1,0 +1,46 @@
+import { aboutPageData } from "@/constants/aboutData";
+import AboutHeroSection from "@/components/sections/AboutHeroSection";
+import TwoColumnSection from "@/components/sections/TwoColumnSection";
+import FullWidthHeroSection from "@/components/sections/FullWidthHeroSection";
+import { constructMetadata } from "@/constants/seoData";
+import { Metadata } from "next";
+
+export const metadata: Metadata = constructMetadata('about');
+
+export default function AboutPage() {
+  return (
+    <main className="min-h-screen">
+      {/* Hero Section */}
+      <AboutHeroSection
+        title={aboutPageData.hero.title}
+        points={aboutPageData.hero.points}
+        subtitle={aboutPageData.hero.subtitle}
+        description={aboutPageData.hero.description}
+        imageUrl={aboutPageData.hero.imageUrl}
+      />
+      <div className="lg:py-32 md:py-16 py-8 space-y-6 lg:space-y-9 page-wrapper">
+        {/* Mission Section */}
+        <TwoColumnSection
+          title={aboutPageData.mission.title}
+          description={aboutPageData.mission.description}
+          imageUrl={aboutPageData.mission.imageUrl}
+          imagePosition={aboutPageData.mission.imagePosition}
+        />
+
+        {/* Vision Section */}
+        <TwoColumnSection
+          title={aboutPageData.vision.title}
+          description={aboutPageData.vision.description}
+          imageUrl={aboutPageData.vision.imageUrl}
+          imagePosition={aboutPageData.vision.imagePosition}
+        />
+      </div>
+      {/* Full Width Hero Section */}
+      {/* <FullWidthHeroSection
+        title={aboutPageData.fullWidth.title}
+        subtitle={aboutPageData.fullWidth.subtitle}
+        backgroundImageUrl={aboutPageData.fullWidth.backgroundImageUrl}
+      /> */}
+    </main>
+  );
+}

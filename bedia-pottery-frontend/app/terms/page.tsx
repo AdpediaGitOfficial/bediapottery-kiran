@@ -1,0 +1,63 @@
+import { termsData } from "@/constants/termsData";
+import { Content, Title } from "@/components/ui";
+import { getTermsData } from "@/services/terms.service";
+import { constructMetadata } from "@/constants/seoData";
+import { Metadata } from "next";
+
+export const metadata: Metadata = constructMetadata('terms');
+export default async function TermsPage() {
+  const termsData = await getTermsData();
+  return (
+    <main className="min-h-screen bg-secondary-dark">
+      <div className="page-wrapper px-[17px] lg:py-24 md:py-12 py-8">
+        <Title className="mb-4">Terms and Conditions</Title>
+        <Content>Please read these Terms and Conditions carefully before booking a workshop with Bedia Pottery ("us", "we", or "our").</Content>
+        <div className="mt-[40px] bg-white p-5 lg:p-10 ">
+          {termsData.map((section, index) => (
+            <div key={index}>
+              <Content className="font-semibold mb-4">
+                {section.title}
+              </Content>
+              <div className="mb-6">
+                  <Content  className="leading-[150%]">
+                    {section.content}
+                  </Content>
+
+                {/* {section?.points && (
+                  <ul className="list-decimal  pl-5">
+                    {section?.points.map((item, i) => (
+                      <Content key={i} className="leading-[150%]">
+                        <li>{item}</li>
+                      </Content>
+                    ))}
+                  </ul>
+                )} */}
+              </div>
+            </div>
+          ))}
+          <div>
+              <Content className="font-semibold text-xl mb-4">Contact Information
+</Content>
+             
+              <div className="mt-3 space-y-2">
+                <p className="font-semibold">Bedia Pottery LLC</p>
+                <p className="font-semibold">Dubai, United Arab Emirates</p>
+                <p>
+                  <span className="font-semibold">Email: </span>
+                  <a href="mailto:booking@bediapottery.ae" className="text-primary underline">
+                    booking@bediapottery.ae
+                  </a>
+                </p>
+                <p>
+                  <span className="font-semibold">Website: </span>
+                  <a href="https://www.bediapottery.ae" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                    www.bediapottery.ae
+                  </a>
+                </p>
+              </div>
+            </div>
+        </div>
+      </div>
+    </main>
+  );
+}

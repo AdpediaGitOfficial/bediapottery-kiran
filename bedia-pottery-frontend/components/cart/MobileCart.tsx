@@ -1,0 +1,224 @@
+
+"use client"
+import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { CartData, deleteCart } from "@/services/cart.service";
+import { getCartTotals, formatPercent } from "@/utils/cartTotals";
+
+function isBirthdayPackage(title: string, optionTitle: string) {
+  return `${title} ${optionTitle}`
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .includes("birthday package (14+ years)");
+}
+
+export default function MobileCart({
+  data,
+  refreshCart,
+  onCheckout,
+  isGuest = false,
+  onRemoveGuestItem,
+}: {
+  data: CartData[];
+  refreshCart: () => void;
+  onCheckout?: () => void;
+  isGuest?: boolean;
+  onRemoveGuestItem?: (index: number) => void;
+}) {
+  const router = useRouter();
+  const cartItems = data?.[0]?.items || [];
+  const { subtotal: cartTotal, taxPercent } = getCartTotals(data?.[0]);
+  const currency = cartItems?.[0]?.currency || "AED";
+  const formatDate = (dateString: string) => {
+  if (!dateString) return "";
+  return new Date(dateString).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short", // Use 'long' for "August" or '2-digit' for "08"
+    year: "numeric"
+  });
+};
+
+  if (cartItems.length === 0) {
+    return (
+      <main className="page-wrapper px-[17px] bg-[#fcfbf9] min-h-screen font-sans text-[#0D463D]">
+        <div className="flex flex-col items-center justify-center min-h-[60dvh] text-center px-4 py-20">
+          <h1 className="text-2xl font-serif mb-4">Your cart is empty</h1>
+          <p className="text-gray-500 max-w-md">
+            Add items to your cart and return here to complete checkout.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="page-wrapper   bg-[#fcfbf9] min-h-screen font-sans text-[#0D463D]">
+      {/* Header */}
+      <div className="md:px-0 px-3">
+      <div className="flex justify-between items-end border-b border-gray-200 pb-4 mb-6 mt-4 sm:mt-8">
+        <h1 className="text-2xl font-serif text-black">Your Cart</h1>
+        <span className="text-gray-500 font-medium">({cartItems.length})</span>
+      </div>
+
+      <div className="space-y-8">
+        {cartItems.map((item, i) => (
+          <div className="border-b border-gray-200 pb-6" key={i}>
+            <div className="flex gap-4">
+              {/* Thumbnail */}
+              <div className="w-24 h-auto sm:w-28 md:h-28 bg-gray-200 rounded-sm shrink-0 overflow-hidden">
+                <Image
+                  src={
+                    item.workshopId.images?.[0]?.image ||
+                    "/images/products/pottery1.png"
+                  }
+                  alt="Beginners pottery"
+                  width={112}
+                  height={112}
+                  unoptimized
+                  className="w-full h-full object-cover"
+                />
+              </div>
+
+              {/* Item Details */}
+              <div className="flex-grow flex flex-col justify-center text-sm relative">
+                <button
+                  className="text-gray-400 absolute top-0 right-0 hover:text-[#0D463D] mb-3 border border-gray-300 rounded-full w-6 h-6 flex items-center justify-center text-xs transition-colors"
+                  onClick={async () => {
+                    if (isGuest && onRemoveGuestItem) {
+                      onRemoveGuestItem(i);
+                      refreshCart();
+                      return;
+                    }
+
+                    await deleteCart({
+                      userId: data[0]?.userId || "",
+                      itemIndex: i,
+                    });
+
+                    await refreshCart();
+                  }}
+                >
+                  ✕
+                </button>
+
+                <h3 className="font-semibold text-[15px] text-black mb-2 leading-tight md:block hidden">
+                  {item.workshopId.title}-{item.optionTitle}
+                </h3>
+                <h3 className="font-semibold text-[15px] text-black mb-2 leading-tight md:hidden block">
+                  {item.workshopId.title}
+                </h3>
+                <h3 className="font-semibold text-[15px] text-black mb-2 leading-tight md:hidden block">
+                  {item.optionTitle}
+                </h3>
+                <h3 className="font-normal text-[15px] text-black mb-2 leading-tight">
+  {formatDate(item.bookingDate)}
+  <label className="ml-2 max-md:block max-md:ml-0 max-md:mt-2  text-gray-600 font-normal text-[15px]">
+    {item.startTime} - {item.endTime}
+  </label>
+</h3>
+               <div className="flex justify-between items-end text-gray-500">
+  {item.workshopType === "family" ? (
+    // IF: family
+    <>
+      <p>
+        {/* x {item.people}{" "}
+        <span className="ml-1">
+          {item.currency} {item.price.toFixed(2)}
+        </span> */}
+      </p>
+
+      <p className="font-medium text-black">
+        {item.currency} {item.subtotal.toFixed(2)}
+      </p>
+    </>
+  ) : !isBirthdayPackage(item.workshopId.title, item.optionTitle) ? (
+    // ELSE IF: NOT birthday package
+    <>
+      {/* Your normal workshop display */}
+      <p>
+        x {item.people}{" "}
+        <span className="ml-1">
+          {item.currency} {item.price.toFixed(2)}
+        </span>
+      </p>
+
+      <p className="font-medium text-black">
+        {item.currency} {item.subtotal.toFixed(2)}
+      </p>
+    </>
+  ) : (
+    // ELSE: birthday package
+    <>
+      <div>
+        {(item.wheelPottery ?? 0) > 0 && (
+          <p className="mb-2">
+            x {item.wheelPottery} Wheel Pottery
+            <span className="ml-1">
+              {item.currency} {Number(item.price ?? 0).toFixed(2)}
+            </span>
+          </p>
+        )}
+
+        {(item.handBuild ?? 0) > 0 && (
+          <p>
+            x {item.handBuild} Hand Building
+            <span className="ml-1">
+              {item.currency} {Number(item.price ?? 0).toFixed(2)}
+            </span>
+          </p>
+        )}
+      </div>
+
+      <p className="font-medium text-black">
+        {item.currency} {item.subtotal.toFixed(2)}
+      </p>
+    </>
+  )}
+</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Cart Totals & Checkout */}
+      <div className="mt-8 space-y-6">
+        <div className="flex justify-between items-center text-lg">
+          <span className="font-semibold text-black">TOTAL</span>
+          <span className="font-bold text-black">
+            {currency} {cartTotal.toFixed(2)}<span className="text-xs"> ( + {formatPercent(taxPercent)}% VAT )</span>
+          </span>
+        </div>
+
+        {/* 
+          This button uses the onCheckout prop passed down from MasterCartFlow 
+          to transition to Step 1 (the detailed CartStep) 
+        */}
+        <button
+          onClick={onCheckout}
+          className="w-full bg-[#0D463D] text-white py-4 font-medium text-[15px] hover:bg-[#0c251a] transition-colors rounded-sm shadow-sm"
+        >
+          Checkout
+        </button>
+
+        {/* Payment Methods */}
+        <div className="text-center pb-8">
+          <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
+            Secure payments provided by
+          </p>
+          <div className="flex justify-center gap-2">
+            <Image
+              src="/images/icons/card.png"
+              alt="Payment Cards"
+              width={200}
+              height={30}
+              unoptimized
+            />
+          </div>
+        </div>
+      </div>
+      </div>
+    </main>
+  );
+}

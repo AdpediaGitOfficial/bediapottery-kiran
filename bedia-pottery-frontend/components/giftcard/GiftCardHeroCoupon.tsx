@@ -1,0 +1,621 @@
+"use client";
+
+import { useMemo, useRef, useState, ChangeEvent, useEffect } from "react";
+import { format } from "date-fns";
+import { useFilteredTimeSlots } from "@/hooks/useFilteredTimeSlots";
+import { useRouter } from "next/navigation";
+import DateSelector from "../product/DateSelector";
+import TimeSlotSelector from "../product/TimeSlotSelector";
+import ProductMedia from "../product/ProductMedia";
+import { BookingService } from "@/services/booking.service";
+import {
+  getAvailabilityData,
+  getPotteryCapacity,
+  PotteryCapacityResult,
+} from "@/services/avaliablity.service";
+import { Availability } from "@/types";
+import { useAuthStore } from "@/store/authStore";
+import { confirmGiftRedeem } from "@/services/gift.service";
+import { Title } from "../ui";
+import MobileQuantityBar from "../common/MobileQuantityBar";
+
+interface PresetBookingPayload {
+  bookingId: string;
+  giftStatus: string;
+  occasion: string;
+  personalMessage: string;
+  workshop: {
+    _id: string;
+    title: string;
+    slug: string;
+    bannerImage?: string;
+    images?: Array<{
+      _id: string;
+      image: string;
+      title: string;
+    }>;
+    defaultSlots: Array<{
+      _id: string;
+      label: string;
+      startTime: string;
+      endTime: string;
+      capacity: number;
+    }>;
+  };
+  items: Array<{
+    optionId: string;
+    optionTitle: string;
+    price: number;
+    people: number;
+    adult: number;
+    child: number;
+    subtotal: number;
+  }>;
+  totalPeople: number;
+  grandTotal: number;
+  currency: string;
+}
+
+interface GiftCardHeroProps {
+  bookingData: PresetBookingPayload;
+}
+
+interface FormState {
+  firstName: string;
+  lastName: string;
+  address: string;
+  phone: string;
+  email: string;
+}
+
+interface ValidationError {
+  field: keyof FormState;
+  message: string;
+}
+
+const STATIC_CLAY_OPTIONS = [
+  {
+    clayTypeId: "698ed9075bed39f35db8991a",
+    title: "Air-Dry Clay",
+    price: 249,
+    currency: "AED",
+    priceDescription: "14 yrs - 19 yrs",
+    description:
+      "• Soft and easy to shape, perfect for beginners.<br>• Air-dries naturally without a kiln or oven.<br>• <b>Take your pot home with you right after the workshop.</b><br>• Ideal for decorative pieces only.<br>• Not suitable for food or drinks.<br>• Allow approximately 2–3 days to dry at room temperature. (Keep it inside the box.)<br>• Once fully dry, you can paint your piece at home with acrylic paints.",
+    inclusions: [],
+    image: "",
+    clayTypethumbnailImage:
+      "http://api.bediapottery.ae/uploads/1787577412038-Air fin.png",
+    clayTypeVideo:
+      "http://api.bediapottery.ae/uploads/1787562430872-AIR DRY CLAY_WEBSITE.mp4",
+    _id: "6abd29210a660551f0bedd0b",
+  },
+  {
+    clayTypeId: "698ed9075bed39f35db8991c",
+    title: "Terracotta Clay",
+    price: 259,
+    currency: "AED",
+    priceDescription: "20 yrs & above",
+    description:
+      "• Naturally earthy red in color.<br>• Ideal for creating functional items such as cups, bowls, and plates.<br>• The pieces created during the workshop will undergo two rounds of firing.<br>• After firing, the pieces will be glaze-coated, making them ceramic and food-safe.<br>• Your finished items will be ready for collection in approximately 3 weeks.<br>• We will notify you once your items are ready for collection.<br><br><b>Note: Painting is not available for terracotta items.</b>",
+    inclusions: [],
+    image: "",
+    clayTypethumbnailImage:
+      "http://api.bediapottery.ae/uploads/1787577412570-Tera fin.png",
+    clayTypeVideo:
+      "http://api.bediapottery.ae/uploads/1787562435317-TERACOTTA CLAY_WEBSITE.mp4",
+    _id: "6abd29210a660551f0bedd0c",
+  },
+  {
+    clayTypeId: "698ed9075bed39f35db8991b",
+    title: "Ceramic Clay",
+    price: 299,
+    currency: "AED",
+    priceDescription: "",
+    description:
+      "• Natural white in color.<br>• Ideal for creating functional items such as cups, bowls, and plates.<br>• A painting session is included.<br>• A painting invitation will be sent within 2–3 weeks after creation.<br>• After painting, your piece will be glaze-fired by our team, making it ceramic and food-safe.<br>• Your finished item will be ready for collection approximately 1–2 weeks after painting.<br>• We will notify you once your item is ready for collection.",
+    inclusions: [],
+    image: "",
+    clayTypethumbnailImage:
+      "http://api.bediapottery.ae/uploads/1787577413110-cera fin.png",
+    clayTypeVideo:
+      "https://api.bediapottery.ae/uploads/1788086398103-CERAMIC_CLAY_WEBSITE.mp4",
+    _id: "6abd29210a660551f0bedd0d",
+  },
+] as const;
+
+export default function GiftCardHero({ bookingData }: GiftCardHeroProps) {
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [dateError, setDateError] = useState("");
+  const [slotError, setSlotError] = useState("");
+  const [availabilityError, setAvailabilityError] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Form Management States
+  const [formData, setFormData] = useState<FormState>({
+    firstName: "",
+    lastName: "",
+    address: "",
+    phone: "",
+    email: "",
+  });
+  const [errors, setErrors] = useState<ValidationError[]>([]);
+  const [formError, setFormError] = useState("");
+  const [isRedeemReached, setIsRedeemReached] = useState(false);
+  const redeemSectionRef = useRef<HTMLDivElement>(null);
+   const [capacityInfo, setCapacityInfo] =
+      useState<PotteryCapacityResult | null>(null);
+const [capacityLoading, setCapacityLoading] = useState(false);
+  const [capacityError, setCapacityError] = useState<string>("");
+  const router = useRouter();
+
+  const options = STATIC_CLAY_OPTIONS;
+
+  const bookingItem = bookingData?.items?.[0] || {
+    optionId: "",
+    optionTitle: options[0]?.title || "N/A",
+    price: 0,
+    people: 1,
+    adult: 0,
+    child: 0,
+  };
+  const materialDisplayTitle = bookingItem.optionTitle.split(" - ")[0].trim();
+
+  const staticWorkshopMedia = useMemo(() => {
+    const images = STATIC_CLAY_OPTIONS.map((option) => ({
+      _id: option._id,
+      image: option.clayTypethumbnailImage,
+      title: option.title,
+    }));
+
+    return {
+      bannerImage: STATIC_CLAY_OPTIONS[0]?.clayTypethumbnailImage || "/images/product/1.png",
+      images,
+    };
+  }, []);
+
+  const workshop = bookingData?.workshop || {
+    _id: "",
+    title: "Gift Card Workshop",
+    bannerImage: staticWorkshopMedia.bannerImage,
+    images: staticWorkshopMedia.images,
+    defaultSlots: [],
+  };
+  const occasion = bookingData?.occasion || "General";
+  const selectedMaterialOption =
+    options.find((option) => option.title === bookingItem.optionTitle) || options[0];
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const redeemRect = redeemSectionRef.current?.getBoundingClientRect();
+      if (!redeemRect) return;
+      setIsRedeemReached(redeemRect.top <= window.innerHeight * 0.85);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToRedeem = () => {
+    redeemSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const formattedDate = useMemo(() => {
+    return selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
+  }, [selectedDate]);
+
+  // Filter time slots for today based on UAE timezone using custom hook
+  const availableSlots = useFilteredTimeSlots(selectedDate, workshop.defaultSlots);
+
+  const handleDateSelect = (date: Date) => {
+    const isSameDate =
+      selectedDate && date.toDateString() === selectedDate.toDateString();
+
+    if (isSameDate && selectedSlotId !== null) {
+      setSelectedSlotId(null);
+      setSelectedDate(null);
+    } else {
+      setSelectedDate(date);
+      setSelectedSlotId(null);
+    }
+
+    setDateError("");
+    setAvailabilityError("");
+  };
+
+  const handleSlotSelect = (slotId: string) => {
+    setSelectedSlotId(slotId);
+    setSlotError("");
+    setAvailabilityError("");
+  };
+
+  useEffect(() => {
+    const fetchCapacity = async () => {
+      if (!selectedDate || !selectedSlotId) {
+        setCapacityInfo(null);
+        setCapacityError("");
+        return;
+      }
+
+      const slot = workshop.defaultSlots.find((s) => s._id === selectedSlotId);
+      if (!slot) return;
+
+      setCapacityLoading(true);
+      setCapacityError("");
+
+      try {
+        const res = await getPotteryCapacity({
+          workshopId: workshop._id,
+          bookingDate: formattedDate,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          bookingType: "pottery",
+        });
+
+        setCapacityInfo(res.result ?? null);
+      } catch (err: any) {
+        console.error("Capacity fetch error", err);
+        setCapacityError(err?.message || "Unable to fetch capacity");
+        setCapacityInfo(null);
+      } finally {
+        setCapacityLoading(false);
+      }
+    };
+
+    fetchCapacity();
+  }, [formattedDate, selectedDate, selectedSlotId, workshop._id, workshop.defaultSlots]);
+
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => prev.filter((err) => err.field !== name));
+    setFormError("");
+  };
+
+  const validateSelection = () => {
+    let isValid = true;
+    const newErrors: ValidationError[] = [];
+
+    if (!selectedDate) {
+      setDateError("Please select a date before continuing.");
+      isValid = false;
+    } else {
+      setDateError("");
+    }
+
+    if (!selectedSlotId) {
+      setSlotError("Please select a time slot before continuing.");
+      isValid = false;
+    } else {
+      setSlotError("");
+    }
+
+    if (!couponCode.trim()) {
+      setAvailabilityError("Please enter a valid coupon/voucher code.");
+      isValid = false;
+    }
+
+    // Form Input Validations
+    if (!formData.firstName.trim()) {
+      newErrors.push({ field: "firstName", message: "First name is required." });
+      isValid = false;
+    }
+    if (!formData.lastName.trim()) {
+      newErrors.push({ field: "lastName", message: "Last name is required." });
+      isValid = false;
+    }
+    if (!formData.address.trim()) {
+      newErrors.push({ field: "address", message: "Recipient address is required." });
+      isValid = false;
+    }
+    if (!formData.phone.trim()) {
+      newErrors.push({ field: "phone", message: "Phone number is required." });
+      isValid = false;
+    }
+    if (!formData.email.trim()) {
+      newErrors.push({ field: "email", message: "Email address is required." });
+      isValid = false;
+    }
+
+    setErrors(newErrors);
+    if (newErrors.length > 0) {
+      setFormError("Please complete all required details.");
+    }
+
+    return isValid;
+  };
+
+  const handleRedeem = async () => {
+    if (!validateSelection()) return;
+
+    setIsSubmitting(true);
+    setAvailabilityError("");
+    setFormError("");
+
+    const availabilityData: Availability = {
+      workshopId: workshop._id,
+      bookingDate: formattedDate,
+      slotId: selectedSlotId!,
+      guests: bookingItem.people,
+    };
+
+    try {
+      const availabilityResponse = await getAvailabilityData(availabilityData);
+      const isAvailable = availabilityResponse?.result?.available === true;
+
+      if (!isAvailable) {
+        setAvailabilityError(
+          availabilityResponse?.result?.reason || "Selected slot is not available."
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Dynamic variables applied here from our state object
+      const redeemPayload = {
+        bookingId: bookingData.bookingId,
+        voucherCode: couponCode.trim(),
+        bookingDate: formattedDate,
+        slotId: selectedSlotId!,
+        startTime:
+          workshop.defaultSlots.find((slot) => slot._id === selectedSlotId)?.startTime || "",
+        endTime:
+          workshop.defaultSlots.find((slot) => slot._id === selectedSlotId)?.endTime || "",
+        recipientName: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+        recipientPhone: formData.phone.trim(),
+        recipientEmail: formData.email.trim(),
+        recipientAddress: formData.address.trim(), 
+      };
+
+      const token = useAuthStore.getState().user?.token || undefined;
+      const response = await confirmGiftRedeem(redeemPayload, token);
+
+      if (response.success) {
+        router.push("/success");
+      }
+    } catch (error) {
+      setAvailabilityError(
+        (error as Error)?.message || "An unexpected error occurred."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="bg-secondary-dark min-h-screen md:py-12 py-8 font-sans text-[#0D463D]">
+      <div className="page-wrapper px-[17px] grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+        <div className="flex flex-col gap-4 h-full">
+          <div className="lg:hidden block p-3 pt-8">
+            <Title className="2xl:mb-7 mb-5 font-normal">Your Pottery Gift Awaits!</Title>
+            <p className="text-[#0D463D]/80 leading-relaxed text-[17px]">
+             A special clay experience, gifted just for you. <br/><br/>
+             Before you begin, watch the video below to see the journey of your clay. Then, redeem your voucher and get ready to create something special!
+            </p>
+          </div>
+
+          <ProductMedia
+            imageUrl="/images/gift/banner.png"
+            alt={workshop?.title || "Gift card workshop"}
+            images={workshop?.images || staticWorkshopMedia.images}
+            videos={
+              options
+                .filter(
+                  (option) =>
+                    option.clayTypeVideo && option.clayTypethumbnailImage,
+                )
+                .map((option) => ({
+                  id: option._id,
+                  thumbnailUrl: option.clayTypethumbnailImage || "",
+                  videoUrl: option.clayTypeVideo || "",
+                }))
+            }
+          />
+        </div>
+
+        {/* Right Column: Content & Integrated Controls */}
+        <div className="flex flex-col space-y-6">
+           <div className="lg:block hidden">
+          <Title className="2xl:mb-7 mb-5 font-normal">Your Pottery Gift Awaits!</Title>
+            <p className="text-[#0D463D]/80 leading-relaxed text-[17px]">
+             A special clay experience, gifted just for you. <br/><br/>
+             Before you begin, watch the video below to see the journey of your clay. Then, redeem your voucher and get ready to create something special!
+            </p>
+          </div>
+
+          {/* Config Summary Card */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 border border-gray-100 rounded shadow-sm">
+            <div>
+              <label className="block text-black text-xs uppercase tracking-wider text-gray-400 font-semibold mb-1.5">
+                Occasion
+              </label>
+              <div className="w-full bg-[#0D463D] text-white py-2 px-3 rounded text-sm font-medium text-center truncate">
+                {occasion}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-black text-xs uppercase tracking-wider text-gray-400 font-semibold mb-1.5">
+                Selected Material Option
+              </label>
+              <div className="w-full bg-[#0D463D] text-white py-2 px-3 rounded text-sm font-medium text-center truncate">
+                {materialDisplayTitle}
+              </div>
+            </div>
+          </div>
+
+          {/* Recipient Input Details Form Block */}
+          <div className="bg-white p-6 border border-gray-100 rounded shadow-sm space-y-4">
+              {formError && (
+              <div className="p-3.5 bg-red-50 border border-red-100 rounded text-xs text-red-600 font-medium">
+                {formError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="block text-black text-xs font-semibold text-gray-600">First Name *</label>
+                <input
+                  type="text"
+                  name="firstName"
+                  value={formData.firstName}
+                  onChange={handleChange}
+                  className="w-full p-2.5 border border-gray-200 rounded text-sm focus:outline-[#0D463D]"
+                />
+                {errors.find(e => e.field === "firstName") && (
+                  <p className="text-xs text-red-500">{errors.find(e => e.field === "firstName")?.message}</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <label className="block text-black text-xs font-semibold text-gray-600">Last Name *</label>
+                <input
+                  type="text"
+                  name="lastName"
+                  value={formData.lastName}
+                  onChange={handleChange}
+                  className="w-full p-2.5 border border-gray-200 rounded text-sm focus:outline-[#0D463D]"
+                />
+                {errors.find(e => e.field === "lastName") && (
+                  <p className="text-xs text-red-500">{errors.find(e => e.field === "lastName")?.message}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-black text-xs font-semibold text-gray-600">Address *</label>
+              <input
+                type="text"
+                name="address"
+                placeholder="Street address, apartment, suite, unit etc."
+                value={formData.address}
+                onChange={handleChange}
+                className="w-full p-2.5 border border-gray-200 rounded text-sm focus:outline-[#0D463D]"
+              />
+              {errors.find(e => e.field === "address") && (
+                <p className="text-xs text-red-500">{errors.find(e => e.field === "address")?.message}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="block text-black text-xs font-semibold text-gray-600">Phone *</label>
+                <input
+                  type="tel"
+                  name="phone"
+                  placeholder="+971"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  className="w-full p-2.5 border border-gray-200 rounded text-sm focus:outline-[#0D463D]"
+                />
+                {errors.find(e => e.field === "phone") && (
+                  <p className="text-xs text-red-500">{errors.find(e => e.field === "phone")?.message}</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <label className="block text-black text-xs font-semibold text-gray-600">Email Address *</label>
+                <input
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  className="w-full p-2.5 border border-gray-200 rounded text-sm focus:outline-[#0D463D]"
+                />
+                {errors.find(e => e.field === "email") && (
+                  <p className="text-xs text-red-500">{errors.find(e => e.field === "email")?.message}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Date Selector Box */}
+          <div className="bg-white p-4 border border-gray-100 rounded shadow-sm">
+            <DateSelector onDateSelect={handleDateSelect} selectedDate={selectedDate} />
+            {dateError && <p className="mt-2.5 text-sm text-red-600 font-medium">{dateError}</p>}
+          </div>
+
+          {/* Time Slots Box */}
+           {availableSlots?.length > 0 && (
+              <div className="p-[18px] bg-white">
+                <TimeSlotSelector
+                  slots={availableSlots.map((slot) => ({
+                    ...slot,
+                    capacity: Boolean(slot.capacity),
+                  }))}
+                  selectedSlotId={selectedSlotId}
+                  onSlotSelect={handleSlotSelect}
+                />
+                {slotError && (
+                  <p className="mt-3 text-sm text-red-600">{slotError}</p>
+                )}
+
+                {capacityLoading && (
+                  <p className="mt-3 text-sm text-gray-600">
+                    Checking capacity...
+                  </p>
+                )}
+                {capacityError && (
+                  <p className="mt-3 text-sm text-red-600">{capacityError}</p>
+                )}
+                {capacityInfo &&
+                  (capacityInfo.remainingCapacity === 0 ? (
+                    <p className="mt-3 text-sm text-red-600">
+                      Sorry, this time slot is fully booked. Please select
+                      another time slot or date.
+                    </p>
+                  ) : (
+                    <div className="mt-3 text-sm text-green-700">
+                      <p>
+                        <strong>Available slots:</strong>{" "}
+                        {capacityInfo.remainingCapacity}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+
+          {/* Coupon Redemption Field */}
+          <div ref={redeemSectionRef} className="bg-white p-4 border border-gray-100 rounded shadow-sm space-y-4 scroll-mt-6">
+            <div>
+              <label className="block text-black text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Voucher Code Verification</label>
+              <div className="flex border border-gray-200 rounded overflow-hidden">
+                <input
+                  type="text"
+                  value={couponCode}
+                  onChange={(e) => setCouponCode(e.target.value)}
+                  placeholder="Enter your voucher code"
+                  className="flex-grow p-3 border-none focus:ring-0 text-sm bg-white outline-none"
+                />
+              </div>
+            </div>
+
+            {availabilityError && (
+              <p className="text-sm text-red-600 font-medium bg-red-50 p-2.5 rounded border border-red-100">
+                {availabilityError}
+              </p>
+            )}
+
+            <button
+              onClick={handleRedeem}
+              disabled={isSubmitting}
+              className="w-full bg-[#0D463D] text-white py-3.5 px-4 font-medium hover:bg-[#0c251a] transition-colors text-center text-sm disabled:bg-gray-400 rounded-sm shadow-sm"
+            >
+              {isSubmitting ? "Processing Redemption..." : "Confirm & Redeem Coupon"}
+            </button>
+          </div>
+        </div>
+      </div>
+      <MobileQuantityBar
+        materialTitle={bookingItem.optionTitle}
+        currency={bookingData?.currency || "AED"}
+        totalPrice={bookingData?.grandTotal ?? bookingItem.subtotal}
+        isVisible={!isRedeemReached}
+        onScrollToQuantity={scrollToRedeem}
+        actionLabel="Redeem Gift"
+        isPriceVisible={false}
+      />
+    </section>
+  );
+}

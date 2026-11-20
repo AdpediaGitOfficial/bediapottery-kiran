@@ -1,0 +1,541 @@
+"use client";
+
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { format, isToday } from "date-fns";
+import { useFilteredTimeSlots } from "@/hooks/useFilteredTimeSlots";
+import { Availability } from "@/types";
+import { WorkshopItem } from "@/services/workshop.service";
+import ProductMedia from "./ProductMedia";
+import MaterialSelector from "./MaterialSelector";
+import MaterialDescription from "./MaterialDescription";
+import DateSelector from "./DateSelector";
+import TimeSlotSelector from "./TimeSlotSelector";
+import QuantitySelector from "./QuantitySelector";
+import WorkshopQuantitySelector from "./WorkshopQuantitySelector";
+import BookingActions from "./BookingActions";
+import { BookingService, IBookingService } from "@/services/booking.service";
+import {
+  getAvailabilityData,
+  getPotteryCapacity,
+  PotteryCapacityResult,
+} from "@/services/avaliablity.service";
+import { Content, Title } from "../ui";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/authStore";
+import { addToCartOrGuest } from "@/utils/guestCart";
+import MobileQuantityBar from "../common/MobileQuantityBar";
+import CartToast from "../common/CartToast";
+
+interface ProductDetailClientProps {
+  product: WorkshopItem;
+  category: string;
+  slug: string;
+  bookingService?: IBookingService;
+}
+
+const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
+  bookingService = new BookingService(),
+  product,
+  category,
+  slug,
+}) => {
+  const [selectedMaterialId, setSelectedMaterialId] = useState(
+    product.options?.[0]?._id || "",
+  );
+  const isCouplesPackage = slug === "couples-pottery-package";
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+  const minQuantity =
+    category === "corporate-events" ? 12 : isCouplesPackage ? 2 : 1;
+
+  const maxQuantity =
+    category === "corporate-events" ? 25 : isCouplesPackage ? 12 : 12;
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(minQuantity);
+  const [wheelCount, setWheelCount] = useState(0);
+  const [handCount, setHandCount] = useState(0);
+  const [dateError, setDateError] = useState<string>("");
+  const [slotError, setSlotError] = useState<string>("");
+  const [availabilityError, setAvailabilityError] = useState<string>("");
+  const [capacityInfo, setCapacityInfo] =
+    useState<PotteryCapacityResult | null>(null);
+  const [capacityLoading, setCapacityLoading] = useState(false);
+  const [capacityError, setCapacityError] = useState<string>("");
+  const [isMaterialPassed, setIsMaterialPassed] = useState(false);
+  const [isQuantityReached, setIsQuantityReached] = useState(false);
+  const [showCartToast, setShowCartToast] = useState(false);
+  const materialSectionRef = useRef<HTMLDivElement>(null);
+  const quantitySectionRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  // Derived state - computed values
+  const selectedMaterial = useMemo(
+    () => product.options?.find((m) => m._id === selectedMaterialId),
+    [product.options, selectedMaterialId],
+  );
+
+  const quantityLimit = Math.min(
+    maxQuantity,
+    capacityInfo?.remainingCapacity ?? maxQuantity,
+  );
+  const totalPrice = useMemo(() => {
+    const unitPrice = selectedMaterial?.price ?? 0;
+    return category === "corporate-events"
+      ? (handCount + wheelCount) * unitPrice
+      : quantity * unitPrice;
+  }, [category, handCount, quantity, selectedMaterial?.price, wheelCount]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const materialRect = materialSectionRef.current?.getBoundingClientRect();
+      const quantityRect = quantitySectionRef.current?.getBoundingClientRect();
+      if (!materialRect || !quantityRect) return;
+
+      setIsMaterialPassed(materialRect.top <= window.innerHeight * 0.6);
+      setIsQuantityReached(quantityRect.top <= window.innerHeight * 0.85);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToQuantity = () => {
+    quantitySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  useEffect(() => {
+    if (capacityInfo && quantity > capacityInfo.remainingCapacity) {
+      setQuantity(Math.max(minQuantity, capacityInfo.remainingCapacity));
+    }
+  }, [capacityInfo, quantity, minQuantity]);
+
+  const formattedDate = useMemo(() => {
+    return selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
+  }, [selectedDate]);
+
+  // Filter time slots for today based on UAE timezone using custom hook
+  const availableSlots = useFilteredTimeSlots(selectedDate, product.defaultSlots);
+
+  const handleDateSelect = (date: Date) => {
+    const isSameDate =
+      selectedDate && date.toDateString() === selectedDate.toDateString();
+
+    if (isSameDate) {
+      setSelectedDate(null);
+      setSelectedSlotId(null);
+    } else {
+      setSelectedDate(date);
+      setSelectedSlotId(null);
+    }
+
+    setDateError("");
+    setAvailabilityError("");
+  };
+  const handleSlotSelect = (slotId: string) => {
+    setSelectedSlotId(slotId);
+    setSlotError("");
+    setAvailabilityError("");
+  };
+  useEffect(() => {
+    if (
+      capacityInfo &&
+      capacityInfo.remainingCapacity >= minQuantity &&
+      quantity > capacityInfo.remainingCapacity
+    ) {
+      setQuantity(capacityInfo.remainingCapacity);
+    }
+  }, [capacityInfo, quantity, minQuantity]);
+  useEffect(() => {
+    const fetchCapacity = async () => {
+      if (!selectedDate || !selectedSlotId) {
+        setCapacityInfo(null);
+        setCapacityError("");
+        return;
+      }
+
+      const slot = product.defaultSlots.find((s) => s._id === selectedSlotId);
+      if (!slot) return;
+
+      setCapacityLoading(true);
+      setCapacityError("");
+
+      try {
+        const res = await getPotteryCapacity({
+          bookingDate: formattedDate,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          ...(category === "corporate-events" && { bookingType: "events" }),
+        });
+
+        setCapacityInfo(res.result ?? null);
+      } catch (err: any) {
+        console.error("Capacity fetch error", err);
+        setCapacityError(err?.message || "Unable to fetch capacity");
+        setCapacityInfo(null);
+      } finally {
+        setCapacityLoading(false);
+      }
+    };
+
+    fetchCapacity();
+  }, [
+    selectedDate,
+    selectedSlotId,
+    formattedDate,
+    product.defaultSlots,
+    product._id,
+  ]);
+
+  const validateSelection = () => {
+    let isValid = true;
+    if (!selectedDate) {
+      setDateError("Please select a date before continuing.");
+      isValid = false;
+    } else {
+      setDateError("");
+    }
+
+    if (!selectedSlotId) {
+      setSlotError("Please select a time slot before continuing.");
+      isValid = false;
+    } else {
+      setSlotError("");
+    }
+
+    return isValid;
+  };
+
+  const handleAddToCart = async (overrideCounts?: {
+    people?: number;
+    hand?: number;
+    wheel?: number;
+  }) => {
+    const success = await handlecheck("cart", overrideCounts);
+    if (success) {
+      setShowCartToast(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setTimeout(() => setShowCartToast(false), 5000);
+    }
+  };
+
+  const handleBookNow = async () => {
+    const success = await handlecheck("checkout");
+    if (!success) {
+      return;
+    }
+    router.push("/checkout");
+  };
+  // const [activeTab, setActiveTab] = useState(
+  //   product.moreDetails?.[0]?._id || "",
+  // );
+  const handlecheck = async (
+    destination: "cart" | "checkout",
+    overrideCounts?: { people?: number; hand?: number; wheel?: number },
+  ) => {
+    if (!validateSelection()) {
+      return false;
+    }
+
+    const peopleCount = overrideCounts?.people ?? quantity;
+    const handPeople = overrideCounts?.hand ?? handCount;
+    const wheelPeople = overrideCounts?.wheel ?? wheelCount;
+
+    const bookingPayload = {
+      workshopId: product._id,
+      optionId: selectedMaterialId,
+      bookingDate: formattedDate,
+      slotId: selectedSlotId!,
+      startTime:
+        product.defaultSlots.find((slot) => slot._id === selectedSlotId)?.startTime || "",
+      endTime:
+        product.defaultSlots.find((slot) => slot._id === selectedSlotId)?.endTime || "",
+      people: peopleCount,
+      ...(category === "corporate-events"
+        ? {
+            bookingType: "events",
+            handBuild: handPeople,
+            wheelPottery: wheelPeople,
+          }
+        : { bookingType: "pottery" }),
+    };
+
+    const availabilityData: Availability = {
+      workshopId: product._id,
+      bookingDate: formattedDate,
+      slotId: selectedSlotId!,
+      guests: peopleCount,
+      ...(category === "corporate-events" && { bookingType: "events" }),
+      ...(category === "corporate-events" && {
+        handBuild: handPeople,
+        wheelPottery: wheelPeople,
+      }),
+    };
+
+    const availabilityResponse = await getAvailabilityData(availabilityData);
+
+    const isAvailable = availabilityResponse?.result?.available === true;
+    const isAvailableMessage = availabilityResponse?.result?.reason;
+
+    if (!isAvailable) {
+      setAvailabilityError(
+        isAvailableMessage ||
+          "Selected slot is not available. Please choose another date or time.",
+      );
+      return false;
+    }
+
+    setAvailabilityError("");
+
+    const unitPrice = selectedMaterial?.price ?? 0;
+    const currency = selectedMaterial?.currency ?? "AED";
+    const subtotal =
+      category === "corporate-events"
+        ? handPeople * unitPrice + wheelPeople * unitPrice
+        : unitPrice * peopleCount;
+
+    try {
+      await addToCartOrGuest(
+        bookingPayload,
+        {
+          workshopTitle: product.title,
+          optionTitle: selectedMaterial?.title ?? "",
+          price: unitPrice,
+          subtotal,
+          currency,
+          bannerImage: product.bannerImage || "/images/product/1.png",
+          image: product.images?.[0]?.image,
+          handBuild: handPeople,
+          startTime: product.defaultSlots.find((s) => s._id === selectedSlotId)?.startTime || "",
+          endTime: product.defaultSlots.find((s) => s._id === selectedSlotId)?.endTime || "",
+          wheelPottery: wheelPeople,
+        },
+        bookingService,
+      );
+      return true;
+    } catch (error) {
+      setAvailabilityError(
+        (error as Error)?.message ||
+          "Unable to add booking to cart. Please try again.",
+      );
+      return false;
+    }
+  };
+
+  const isBookingDisabled = !selectedDate || !selectedSlotId || quantity < 1;
+
+  return (
+    <section className="bg-secondary-dark min-h-screen lg:py-12 pt-8 pb-0 font-sans text-[#0D463D]">
+      {showCartToast && <CartToast />}
+      <div className="page-wrapper px-[17px] grid grid-cols-1 lg:grid-cols-2 lg:gap-8  items-stretch">
+        <div className="flex flex-col gap-4 h-full">
+           <div className="flex flex-col h-full  lg:p-8 lg:pb-0 space-y-6 lg:hidden p-3">
+          <div>
+            <Title className="2xl:mb-7 text-2xl mb-5 font-normal">
+              {product?.title}
+            </Title>
+            <div>
+              {product?.description && (
+                <Content className=" leading-relaxed mb-1">
+                  {product?.description}
+                </Content>
+              )}
+              <Content className=" leading-relaxed !text-black  font-semibold">
+                {" "}
+                All-inclusive: Clay, tools, aprons, instructor &  {category === "corporate-events" ? "2-hour event." : "1.5-hour session."}
+                 
+              </Content>
+            </div>
+          </div>
+          </div>
+          <ProductMedia
+            imageUrl={product?.bannerImage || "/images/product/1.png"}
+            alt={product?.title}
+            images={product?.images}
+            videos={
+              product?.options
+                ?.filter(
+                  (option) =>
+                    option.clayTypeVideo && option.clayTypethumbnailImage,
+                )
+                ?.map((option) => ({
+                  id: option._id,
+                  // The "|| ''" guarantees TypeScript a string is always provided
+                  thumbnailUrl: option.clayTypethumbnailImage || "",
+                  videoUrl: option.clayTypeVideo || "",
+                })) || []
+            }
+          />
+        </div>
+
+        <div className="flex flex-col h-full md:p-0 lg:p-8 lg:pb-0 space-y-6">
+          <div className="lg:block hidden">
+            <Title className="2xl:mb-7 text-2xl mb-5 font-normal">
+              {product?.title}
+            </Title>
+            <div>
+              {product?.description && (
+                <Content className=" leading-relaxed mb-1">
+                  {product?.description}
+                </Content>
+              )}
+              <Content className=" leading-relaxed !text-black  font-semibold">
+                {" "}
+                All-inclusive: Clay, tools, aprons, instructor &  {category === "corporate-events" ? "2-hour event." : "1.5-hour session."}
+                 
+              </Content>
+            </div>
+          </div>
+      
+          <div ref={materialSectionRef} className="p-[18px] bg-white">
+            {/* Material Selector */}
+      
+            {product?.options && slug!=="turkish-coffee-clay" &&product?.options && slug!=="home-pottery"  && product.options.length > 0 && (
+              <MaterialSelector
+                materials={product?.options}
+                selectedMaterialId={selectedMaterialId}
+                onMaterialSelect={setSelectedMaterialId}
+              />
+            )}
+
+            {/* Material Description */}
+            {selectedMaterial && selectedMaterial.description && (
+              <MaterialDescription
+                materialName={selectedMaterial.title}
+                description={selectedMaterial.description}
+              />
+            )}
+          </div>
+          {/* Date Selector */}
+          <div ref={quantitySectionRef} className="p-[18px] bg-white scroll-mt-6">
+            <DateSelector
+              onDateSelect={handleDateSelect}
+              selectedDate={selectedDate}
+              nonAvailabilityDays={product?.nonAvailabilityDays || []}
+            />
+            {dateError && (
+              <p className="mt-3 text-sm text-red-600">{dateError}</p>
+            )}
+          </div>
+
+          {/* Time Slots */}
+          {availableSlots.length > 0 && (
+            <div className="p-[18px] bg-white">
+              <TimeSlotSelector
+                slots={availableSlots.map((slot) => ({
+                  ...slot,
+                  capacity: Boolean(slot.capacity),
+                }))}
+                selectedSlotId={selectedSlotId}
+                onSlotSelect={handleSlotSelect}
+              />
+              {slotError && (
+                <p className="mt-3 text-sm text-red-600">{slotError}</p>
+              )}
+
+              {/* Capacity Info */}
+              {capacityLoading && (
+                <p className="mt-3 text-sm text-gray-600">
+                  Checking capacity...
+                </p>
+              )}
+
+              {capacityError && (
+                <p className="mt-3 text-sm text-red-600">{capacityError}</p>
+              )}
+
+              {capacityInfo &&
+                (capacityInfo.remainingCapacity === 0 ? (
+                  <p className="mt-3 text-sm text-red-600">
+                    Sorry, this time slot is fully booked. Please select another
+                    time slot or date.
+                  </p>
+                ) : (
+                  <div className="mt-3 text-sm text-green-700">
+                    <p>
+                      <strong>Available slots:</strong>{" "}
+                      {capacityInfo.remainingCapacity}
+                    </p>
+                  </div>
+                ))}
+            </div>
+          )}
+          
+          {/* No slots available for today message */}
+          {selectedDate && isToday(selectedDate) && availableSlots.length === 0 && (
+            <div className="p-[18px] bg-white">
+              <p className="text-sm text-orange-600">
+                All time slots for today have passed. Please select another date.
+              </p>
+            </div>
+          )}
+
+          {/* Quantity Selector */}
+          <div className="p-[18px] bg-white">
+            {category === "corporate-events" ? (
+              <WorkshopQuantitySelector
+                maxLimit={quantityLimit}
+                unitPrice={selectedMaterial ? selectedMaterial.price : 0}
+                currency={selectedMaterial ? selectedMaterial.currency : "AED"}
+                onChange={({ wheelCount: wCount, handCount: hCount }) => {
+                  setWheelCount(wCount);
+                  setHandCount(hCount);
+                }}
+                onCart={({ wheelCount: wCount, handCount: hCount }) => {
+                  setWheelCount(wCount);
+                  setHandCount(hCount);
+                  handleAddToCart({
+                    people: wCount + hCount,
+                    hand: hCount,
+                    wheel: wCount,
+                  });
+                }}
+              />
+            ) : (
+              <QuantitySelector
+                quantity={quantity}
+                limit={quantityLimit}
+                onIncrease={() => {
+                  if (isCouplesPackage) {
+                    if (quantity + 2 <= quantityLimit) {
+                      setQuantity(quantity + 2);
+                    }
+                  } else {
+                    if (quantity < quantityLimit) {
+                      setQuantity(quantity + 1);
+                    }
+                  }
+                }}
+                onDecrease={() => {
+                  if (isCouplesPackage) {
+                    setQuantity(Math.max(2, quantity - 2));
+                  } else {
+                    setQuantity(Math.max(minQuantity, quantity - 1));
+                  }
+                }}
+                unitPrice={selectedMaterial ? selectedMaterial.price : 0}
+                currency={selectedMaterial ? selectedMaterial.currency : "AED"}
+                onCart={handleAddToCart}
+              />
+            )}
+          </div>
+          {/* Booking Actions */}
+          {availabilityError && (
+            <p className="text-sm text-red-600">{availabilityError}</p>
+          )}
+          <BookingActions
+            onBookNow={handleBookNow}
+            isBookingDisabled={isBookingDisabled}
+          />
+        </div>
+      </div>
+      <MobileQuantityBar
+        materialTitle={selectedMaterial?.title}
+        currency={selectedMaterial?.currency || "AED"}
+        totalPrice={totalPrice}
+        isVisible={isMaterialPassed && !isQuantityReached}
+        onScrollToQuantity={scrollToQuantity}
+      />
+    </section>
+  );
+};
+
+export default ProductDetailClient;
