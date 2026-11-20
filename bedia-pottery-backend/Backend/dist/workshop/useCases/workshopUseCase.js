@@ -1416,9 +1416,11 @@ const potteryBookingUseCase = async (data) => {
             // if it pushed the slot over capacity, this request is the one that
             // loses the race and gives everything back.
             if (!isGift && prepared.slot) {
-                const heldUpToThis = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(entry.bookingDate, prepared.slot.startTime, prepared.slot.endTime, booking._id);
+                const { people: heldUpToThis, priorEvents } = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(entry.bookingDate, prepared.slot.startTime, prepared.slot.endTime, booking._id);
                 const heldBeforeThis = heldUpToThis - totalPeople;
-                if (heldUpToThis > (0, slotCapacity_1.resolveSlotCapacity)(entry.bookingType, heldBeforeThis)) {
+                // An event created ahead of this booking owns the whole slot.
+                if (priorEvents > 0 ||
+                    heldUpToThis > (0, slotCapacity_1.resolveSlotCapacity)(entry.bookingType, heldBeforeThis)) {
                     throw new appError_1.default('Slot capacity exceeded', 400);
                 }
             }

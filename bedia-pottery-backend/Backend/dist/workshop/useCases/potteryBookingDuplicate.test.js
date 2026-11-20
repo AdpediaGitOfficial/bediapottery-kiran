@@ -17,6 +17,7 @@ const mockStore = {
     orders: [],
     bookings: [],
     heldBeforeNewBooking: 0,
+    priorEvents: 0,
     nextId: 1,
 };
 const mockId = () => String(mockStore.nextId++).padStart(24, '0');
@@ -83,7 +84,10 @@ jest.mock('../repos/workshopRepo', () => ({
     }),
     getSeatsHeldUpToBookingRepo: jest.fn(async (date, start, end, bookingId) => {
         const own = mockStore.bookings.find((b) => b._id === bookingId);
-        return mockStore.heldBeforeNewBooking + own.totalPeople;
+        return {
+            people: mockStore.heldBeforeNewBooking + own.totalPeople,
+            priorEvents: mockStore.priorEvents,
+        };
     }),
 }));
 const workshopUseCase_1 = require("./workshopUseCase");
@@ -126,6 +130,7 @@ beforeEach(() => {
     mockStore.orders = [];
     mockStore.bookings = [];
     mockStore.heldBeforeNewBooking = 0;
+    mockStore.priorEvents = 0;
     mockStore.nextId = 1;
     mockStore.workshop = buildWorkshop();
     jest.clearAllMocks();
@@ -214,6 +219,24 @@ describe('potteryBookingUseCase — seats', () => {
         });
         expect(mockStore.bookings.every((b) => b.isDeleted)).toBe(true);
         expect(stripe_1.stripe.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+    it('backs out when an event was created ahead of it in the same slot, even with seats to spare', async () => {
+        const repo = require('../repos/workshopRepo');
+        repo.getSlotBookedCount.mockResolvedValueOnce(0);
+        // Only 2 people held in total, so there is room — but one of them is an event.
+        mockStore.priorEvents = 1;
+        await expect((0, workshopUseCase_1.potteryBookingUseCase)(request())).rejects.toMatchObject({
+            message: 'Slot capacity exceeded',
+        });
+        expect(mockStore.bookings.every((b) => b.isDeleted)).toBe(true);
+        expect(stripe_1.stripe.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+    it('an event booking is not blocked by itself', async () => {
+        const events = request();
+        events.workshops[0].bookingType = 'events';
+        events.workshops[0].items[0].people = 12;
+        await expect((0, workshopUseCase_1.potteryBookingUseCase)(events)).resolves.toHaveProperty('checkoutUrl');
+        expect(mockStore.bookings.filter((b) => !b.isDeleted)).toHaveLength(1);
     });
     it('gives the seats back when the Stripe session cannot be created', async () => {
         stripe_1.stripe.checkout.sessions.create.mockRejectedValueOnce(new Error('stripe is down'));
