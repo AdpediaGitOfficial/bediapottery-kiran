@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
@@ -13,6 +13,7 @@ import { BookingService } from "@/services/booking.service";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 import { getCartTotals } from "@/utils/cartTotals";
+import { getCheckoutKey } from "@/utils/checkoutKey";
 
 interface CheckoutFormData {
   firstName: string;
@@ -131,6 +132,24 @@ export default function CheckoutStep({
   const [errors, setErrors] = useState<ValidationError[]>([]);
   const [formError, setFormError] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // State updates are asynchronous, so two quick clicks can both see
+  // isSubmitting === false. The ref changes immediately and blocks the second one.
+  const submittingRef = useRef(false);
+
+  // Coming back from the payment page with the browser's Back button restores
+  // this page exactly as it was left, button locked included. Unlock it, or the
+  // visitor could never try again.
+  useEffect(() => {
+    const unlockOnReturn = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      }
+    };
+
+    window.addEventListener("pageshow", unlockOnReturn);
+    return () => window.removeEventListener("pageshow", unlockOnReturn);
+  }, []);
 
   const router = useRouter();
 
@@ -355,8 +374,12 @@ export default function CheckoutStep({
       });
     });
 
+    const workshops = Array.from(workshopMap.values());
+
     return {
-      workshops: Array.from(workshopMap.values()),
+      // Same cart => same key, so a repeat submit gets the first order back.
+      checkoutKey: getCheckoutKey(JSON.stringify(workshops)),
+      workshops,
       userId,
       customer: {
         firstName: formData.firstName,
@@ -380,12 +403,23 @@ export default function CheckoutStep({
   ) => {
     e.preventDefault();
 
+    // A request is already on its way (double click, Enter pressed twice).
+    if (submittingRef.current) {
+      return;
+    }
+
     if (!validateForm()) {
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
     setFormError("");
+
+    // Once the browser is sent to the payment page the button must stay locked;
+    // unlocking it while the page is still unloading is what allowed a second
+    // click to create a second booking.
+    let redirecting = false;
 
     try {
       const payload = buildCheckoutPayload();
@@ -398,6 +432,7 @@ export default function CheckoutStep({
         raw?.data?.checkoutUrl ?? raw?.checkoutUrl;
 
       if (checkoutUrl) {
+        redirecting = true;
         clearCheckoutStorage();
         window.location.href = checkoutUrl;
       }
@@ -409,7 +444,10 @@ export default function CheckoutStep({
           "Unable to continue. Please try again."
       );
     } finally {
-      setIsSubmitting(false);
+      if (!redirecting) {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      }
     }
   };
 

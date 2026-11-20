@@ -188,6 +188,8 @@ export interface CheckoutCustomerPayload {
 }
 
 export interface CheckoutPayload {
+  /** Same value on every submit of the same cart; lets the server ignore repeats. */
+  checkoutKey?: string;
   bookingType?: string;
   userId?: string;
   workshops: CheckoutWorkshopPayload[];
