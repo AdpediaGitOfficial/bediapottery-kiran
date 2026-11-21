@@ -142,6 +142,18 @@ exports.createWorkshopBooking = (0, express_async_handler_1.default)(async (req,
 // Generates the voucher PDF, persists the gift status, and emails the voucher
 // for a single gift booking. Pulled out so multiple gift bookings can be
 // processed concurrently from the webhook.
+/**
+ * Whether a gift was bought for kids or adults, read from the booked items (the
+ * gift card page sends the guest count as `child` or `adult`). Empty when unknown.
+ */
+const giftAudience = (items = []) => {
+    const first = items[0] || {};
+    if (Number(first.child) > 0)
+        return 'Kids';
+    if (Number(first.adult) > 0)
+        return 'Adults';
+    return '';
+};
 const processGiftBooking = async (giftBooking) => {
     // optionTitle looks like "Air-Dry Clay - Kids" or "Ceramic Clay - Adults";
     // deriveClayType strips the trailing audience suffix.
@@ -153,6 +165,10 @@ const processGiftBooking = async (giftBooking) => {
         personalMessage: giftBooking.giftDetails?.personalMessage || '',
         guests,
         giftFor: giftBooking.giftDetails?.giftFor || '',
+        // Used by the newer voucher artwork, which says who the voucher is for
+        // ("1 Kids' Pottery Experience") and prints the validity date its own way.
+        audience: giftBooking.giftDetails?.giftFor || giftAudience(giftBooking.items),
+        validUntil: giftBooking.giftValidity,
         voucherCode,
         clayType,
         redeemUrl: `${process.env.FRONTEND_URL}/redeem?ref=${giftBooking._id}`,

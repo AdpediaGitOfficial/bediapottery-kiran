@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { PDFDocument } = require('pdf-lib');
-const { generateGiftVoucher, normalizeVoucherMessage, wrapText, VOUCHER_MESSAGE_MAX_LENGTH, } = require("./generateGiftVoucher");
+const { generateGiftVoucher, normalizeVoucherMessage, wrapText, VOUCHER_MESSAGE_MAX_LENGTH, describeIncludes, formatValidUntil, } = require("./generateGiftVoucher");
 /** A font that gives every character the same width, so wrapping is easy to predict. */
 const fakeFont = { widthOfTextAtSize: (text, size) => Array.from(text).length * size * 0.5 };
 describe('normalizeVoucherMessage — what counts as a message', () => {
@@ -152,5 +152,116 @@ describeWithFont('generateGiftVoucher — which pages the voucher has', () => {
         for (const page of pages.slice(0, -1)) {
             expect(linksOn(page)).toBe(0);
         }
+    });
+});
+describe('the wording of the newer voucher artwork', () => {
+    it('says who the voucher is for', () => {
+        expect(describeIncludes('1', 'Kids')).toBe("1 Kids' Pottery Experience");
+        expect(describeIncludes('2', 'adults')).toBe("2 Adults' Pottery Experience");
+        expect(describeIncludes('3', 'Child')).toBe("3 Kids' Pottery Experience");
+    });
+    it('leaves the audience out when it is not known', () => {
+        expect(describeIncludes('2', '')).toBe('2 Pottery Experience');
+        expect(describeIncludes('2', undefined)).toBe('2 Pottery Experience');
+        expect(describeIncludes(undefined, '')).toBe('Pottery Experience');
+    });
+    it('writes the validity date as the artwork shows it', () => {
+        expect(formatValidUntil(new Date('2027-10-16T08:00:00Z'))).toBe('16 October 2027');
+        expect(formatValidUntil('2027-01-05T08:00:00Z')).toBe('5 January 2027');
+    });
+    it('uses the UAE calendar day, not the server\'s', () => {
+        // 21:00 UTC on the 15th is already the 16th in Dubai (UTC+4).
+        expect(formatValidUntil(new Date('2027-10-15T21:00:00Z'))).toBe('16 October 2027');
+    });
+    it('falls back to the text it was given when there is no usable date', () => {
+        expect(formatValidUntil(undefined, 'November 21, 2027')).toBe('November 21, 2027');
+        expect(formatValidUntil('not a date', 'fallback')).toBe('fallback');
+        expect(formatValidUntil(undefined, undefined)).toBe('');
+    });
+});
+describeWithFont('generateGiftVoucher — the newer, half-size template', () => {
+    let workDir;
+    const base = {
+        guests: '2',
+        audience: 'Adults',
+        validUntil: new Date('2027-11-21T08:00:00Z'),
+        voucherCode: 'BPAB12CD',
+        clayType: 'Air-Dry Clay',
+        redeemUrl: 'https://example.com/redeem?ref=abc',
+    };
+    beforeAll(async () => {
+        workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'voucher-compact-test-'));
+        fs.mkdirSync(path.join(workDir, 'uploads/templates'), { recursive: true });
+        fs.mkdirSync(path.join(workDir, 'uploads/fonts'), { recursive: true });
+        fs.mkdirSync(path.join(workDir, 'uploads/vouchers'), { recursive: true });
+        // Only Alata is provided, so this also covers the fallback when Poppins is absent.
+        fs.copyFileSync(FONT_PATH, path.join(workDir, 'uploads/fonts/Alata-Regular.ttf'));
+        // Stand-in for the new artwork: three pages of its size, whose visible area
+        // starts 8.25 pt above the file's bottom edge, as the real file's does.
+        const template = await PDFDocument.create();
+        for (let i = 0; i < 3; i += 1) {
+            const page = template.addPage([419.25, 306]);
+            page.setMediaBox(0, 8.25, 419.25, 297.75);
+        }
+        fs.writeFileSync(path.join(workDir, 'uploads/templates/gift-voucher-template.pdf'), await template.save());
+        jest.spyOn(process, 'cwd').mockReturnValue(workDir);
+        jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterAll(() => {
+        jest.restoreAllMocks();
+        fs.rmSync(workDir, { recursive: true, force: true });
+    });
+    const build = async (personalMessage) => {
+        const result = await generateGiftVoucher({ ...base, personalMessage });
+        const pdf = await PDFDocument.load(fs.readFileSync(result.outputPath));
+        return { result, pdf };
+    };
+    it.each([
+        ['no message', undefined],
+        ['a message of spaces', '   \n '],
+    ])('%s -> two pages', async (_label, message) => {
+        const { result, pdf } = await build(message);
+        expect(result.hasMessage).toBe(false);
+        expect(pdf.getPageCount()).toBe(2);
+    });
+    it.each([
+        ['a short message', 'Happy Birthday!'],
+        ['the longest allowed message', 'Happy birthday! '.repeat(20)],
+        ['a long run with no spaces', 'A'.repeat(250)],
+        ['many short lines', Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n')],
+    ])('%s -> three pages', async (_label, message) => {
+        const { result, pdf } = await build(message);
+        expect(result.hasMessage).toBe(true);
+        expect(pdf.getPageCount()).toBe(3);
+    });
+    it('keeps the redeem link on the last page, with or without a message', async () => {
+        for (const message of [undefined, 'Happy Birthday!']) {
+            const { pdf } = await build(message);
+            const pages = pdf.getPages();
+            const linksOn = (page) => page.node.Annots()?.size() ?? 0;
+            expect(linksOn(pages[pages.length - 1])).toBe(1);
+            expect(pages.slice(0, -1).every((page) => linksOn(page) === 0)).toBe(true);
+        }
+    });
+    it('places the link inside the visible area of the page', async () => {
+        const { pdf } = await build(undefined);
+        const last = pdf.getPages()[pdf.getPageCount() - 1];
+        const annotation = last.node.Annots().lookup(0);
+        const [x1, y1, x2, y2] = annotation.lookup(require('pdf-lib').PDFName.of('Rect')).asArray().map((n) => n.asNumber());
+        expect(x1).toBeGreaterThan(100);
+        expect(x2).toBeLessThanOrEqual(419.25);
+        // Visible area is y 8.25 – 306; the link strip sits in its lower part.
+        expect(y1).toBeGreaterThan(8.25);
+        expect(y2).toBeLessThan(120);
+    });
+    it('still builds a voucher when a clay type or code is very long', async () => {
+        const result = await generateGiftVoucher({
+            ...base,
+            clayType: 'Extra Long Terracotta Clay With A Very Long Name Indeed',
+            voucherCode: 'BP'.padEnd(40, 'X'),
+            redeemUrl: `https://example.com/redeem?ref=${'a'.repeat(120)}`,
+            personalMessage: 'Hi',
+        });
+        expect(result.pageCount).toBe(3);
     });
 });

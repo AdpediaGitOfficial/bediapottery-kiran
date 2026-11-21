@@ -98,13 +98,208 @@ function wrapText(text, font, fontSize, maxWidth) {
     }
     return result;
 }
+/**
+ * Removes the empty message card when there is no message, saves the PDF and
+ * reports what was made. Shared by both template layouts.
+ */
+async function finishVoucher(pdfDoc, hasMessage) {
+    // No message: remove the empty message card (page 1). Done last, after the
+    // other pages have been written, so none of their positions shift.
+    if (!hasMessage) {
+        pdfDoc.removePage(0);
+    }
+    const pdfBytes = await pdfDoc.save();
+    const fileName = `voucher-${Date.now()}.pdf`;
+    const outputPath = path_1.default.join(process.cwd(), 'uploads/vouchers', fileName);
+    fs_1.default.writeFileSync(outputPath, pdfBytes);
+    return { fileName, outputPath, hasMessage, pageCount: pdfDoc.getPageCount() };
+}
+// ─── compact template (419 × 298 pt) ──────────────────────────────────────────
+// The newer voucher artwork is the same three pages at about half the size,
+// with the clay type, guests, validity and code laid out in a box on page 2.
+// Coordinates are PDF pts from the bottom-left corner, measured from the artwork.
+const COMPACT_TEMPLATE_MAX_WIDTH = 600; // the older template is 874 pt wide
+const BRAND_BROWN = (0, pdf_lib_1.rgb)(72 / 255, 50 / 255, 42 / 255); // #483229
+const BRAND_GREEN = (0, pdf_lib_1.rgb)(13 / 255, 70 / 255, 61 / 255); // #0d463d
+/**
+ * Where a page's visible area starts. The newer template's visible area begins
+ * 8.25 pt above the file's own bottom edge, and the positions below were measured
+ * on what is visible, so each one is shifted by this before drawing.
+ */
+const originOf = (page) => {
+    const box = page.getMediaBox();
+    return { x: box.x, y: box.y };
+};
+/** Poppins is the template's text font; Alata (always present) is the fallback. */
+async function embedCompactFonts(pdfDoc) {
+    const dir = path_1.default.join(process.cwd(), 'uploads/fonts');
+    const read = (name) => {
+        const file = path_1.default.join(dir, name);
+        return fs_1.default.existsSync(file) ? new Uint8Array(fs_1.default.readFileSync(file)) : null;
+    };
+    const regular = read('Poppins-Regular.ttf');
+    const bold = read('Poppins-Bold.ttf');
+    if (regular && bold) {
+        return {
+            font: await pdfDoc.embedFont(regular, { subset: true }),
+            fontBold: await pdfDoc.embedFont(bold, { subset: true }),
+        };
+    }
+    console.warn('Poppins fonts not found in uploads/fonts; the voucher text uses Alata instead.');
+    const alata = await pdfDoc.embedFont(new Uint8Array(fs_1.default.readFileSync(path_1.default.join(dir, 'Alata-Regular.ttf'))), { subset: true });
+    return { font: alata, fontBold: alata };
+}
+/** Draws one line of text, shrunk (not below minSize) until it fits maxWidth. */
+function drawFittedLine(page, text, { font, x, y, size, minSize, maxWidth, color }) {
+    let fontSize = size;
+    while (fontSize > minSize && font.widthOfTextAtSize(text, fontSize) > maxWidth) {
+        fontSize -= 0.25;
+    }
+    page.drawText(text, { x, y, size: fontSize, font, color });
+    return { size: fontSize, width: font.widthOfTextAtSize(text, fontSize) };
+}
+/** "2 Adults' Pottery Experience" — who the voucher is for, when that is known. */
+function describeIncludes(guests, audience) {
+    const who = /^kid|^child/i.test(String(audience || ''))
+        ? "Kids' "
+        : /^adult/i.test(String(audience || ''))
+            ? "Adults' "
+            : '';
+    return `${guests ? `${guests} ` : ''}${who}Pottery Experience`;
+}
+/** "16 October 2027", in UAE time, as the template's example shows it. */
+function formatValidUntil(validUntil, fallback) {
+    const date = validUntil ? new Date(validUntil) : null;
+    if (date && !Number.isNaN(date.getTime())) {
+        return date.toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'Asia/Dubai',
+        });
+    }
+    return fallback || '';
+}
+async function drawCompactVoucher(pdfDoc, pages, { personalMessage, guests, audience, giftValidity, validUntil, voucherCode, clayType, redeemUrl, }) {
+    const [page1, page2, page3] = pages;
+    const origin1 = originOf(page1);
+    const origin2 = originOf(page2);
+    const { font, fontBold } = await embedCompactFonts(pdfDoc);
+    // ── PAGE 1 — personal message, inside the bordered card (x 30–387, y 47–227) ──
+    const message = normalizeVoucherMessage(personalMessage);
+    const hasMessage = message.length > 0;
+    if (hasMessage) {
+        const MSG_MAX_WIDTH = 300;
+        const MSG_MAX_HEIGHT = 150;
+        const MSG_CENTER_Y = 137; // vertical centre of the card
+        const MSG_LEFT_X = (page1.getSize().width - MSG_MAX_WIDTH) / 2;
+        // 11 pt, shrunk to 6.5 pt if too tall; if still too tall, many short lines
+        // are run together as one paragraph, which always fits (250 characters).
+        const fit = (text) => {
+            let size = 11;
+            for (;;) {
+                const gap = Math.round(size * 0.55);
+                const lines = wrapText(text, font, size, MSG_MAX_WIDTH);
+                const height = lines.length * size + (lines.length - 1) * gap;
+                if (height <= MSG_MAX_HEIGHT || size <= 6.5) {
+                    return { size, gap, lines, height };
+                }
+                size -= 0.5;
+            }
+        };
+        let layout = fit(message);
+        if (layout.height > MSG_MAX_HEIGHT) {
+            layout = fit(message.replace(/\s*\n\s*/g, ' '));
+        }
+        let lineY = MSG_CENTER_Y + layout.height / 2 - layout.size;
+        for (const line of layout.lines) {
+            page1.drawText(line, {
+                x: MSG_LEFT_X + origin1.x,
+                y: lineY + origin1.y,
+                size: layout.size,
+                font,
+                color: BRAND_BROWN,
+            });
+            lineY -= layout.size + layout.gap;
+        }
+    }
+    // ── PAGE 2 — the four values that follow the template's labels ──────────────
+    const FIELD_RIGHT_EDGE = 380; // inside the info box (right edge ≈ 388)
+    const field = (text, x, y, useBold = false) => {
+        if (!text)
+            return;
+        drawFittedLine(page2, text, {
+            font: useBold ? fontBold : font,
+            x: x + origin2.x,
+            y: y + origin2.y,
+            size: 9.5,
+            minSize: 6.5,
+            maxWidth: FIELD_RIGHT_EDGE - x,
+            color: BRAND_BROWN,
+        });
+    };
+    field(clayType, 240.9, 71.3);
+    field(describeIncludes(guests, audience), 241.6, 57.0);
+    field(formatValidUntil(validUntil, giftValidity), 241.2, 42.8);
+    field(voucherCode, 259.1, 28.6, true);
+    // ── PAGE 3 — clickable booking link after the "Booking Link:" label ─────────
+    if (redeemUrl && page3) {
+        const origin3 = originOf(page3);
+        const LINK_X = 110.5;
+        const LINK_Y = 52.1;
+        const { size, width } = drawFittedLine(page3, redeemUrl, {
+            font,
+            x: LINK_X + origin3.x,
+            y: LINK_Y + origin3.y,
+            size: 7.5,
+            minSize: 4.5,
+            maxWidth: 380 - LINK_X,
+            color: BRAND_GREEN,
+        });
+        const linkAnnotation = pdfDoc.context.obj({
+            Type: 'Annot',
+            Subtype: 'Link',
+            Rect: [
+                LINK_X + origin3.x,
+                LINK_Y + origin3.y - 2,
+                LINK_X + origin3.x + width,
+                LINK_Y + origin3.y + size + 2,
+            ],
+            Border: [0, 0, 0],
+            A: { Type: 'Action', S: 'URI', URI: pdf_lib_1.PDFString.of(redeemUrl) },
+        });
+        const annotRef = pdfDoc.context.register(linkAnnotation);
+        if (page3.node.get(pdf_lib_1.PDFName.of('Annots'))) {
+            page3.node.lookup(pdf_lib_1.PDFName.of('Annots'), pdf_lib_1.PDFArray).push(annotRef);
+        }
+        else {
+            page3.node.set(pdf_lib_1.PDFName.of('Annots'), pdfDoc.context.obj([annotRef]));
+        }
+    }
+    return hasMessage;
+}
 // ─── main export ──────────────────────────────────────────────────────────────
-const generateGiftVoucher = async ({ personalMessage, guests, giftFor, giftValidity, voucherCode, clayType, redeemUrl, }) => {
+const generateGiftVoucher = async ({ personalMessage, guests, giftFor, giftValidity, voucherCode, clayType, redeemUrl, audience, validUntil, }) => {
     const templatePath = path_1.default.join(process.cwd(), 'uploads/templates/gift-voucher-template.pdf');
     const existingPdfBytes = new Uint8Array(fs_1.default.readFileSync(templatePath));
     const pdfDoc = await pdf_lib_1.PDFDocument.load(existingPdfBytes);
     pdfDoc.registerFontkit(fontkit_1.default);
     const pages = pdfDoc.getPages();
+    // The newer, half-size template has its own layout; the older one (874 pt
+    // wide) keeps the layout below, so either file works on any server.
+    if (pages[0].getSize().width < COMPACT_TEMPLATE_MAX_WIDTH) {
+        const compactHasMessage = await drawCompactVoucher(pdfDoc, pages, {
+            personalMessage,
+            guests,
+            audience,
+            giftValidity,
+            validUntil,
+            voucherCode,
+            clayType,
+            redeemUrl,
+        });
+        return finishVoucher(pdfDoc, compactHasMessage);
+    }
     const page1 = pages[0];
     const page2 = pages[1];
     // Alata — the display font used by the template artwork. Alata ships only a
@@ -270,18 +465,11 @@ const generateGiftVoucher = async ({ personalMessage, guests, giftFor, giftValid
             page3.node.set(pdf_lib_1.PDFName.of('Annots'), pdfDoc.context.obj([annotRef]));
         }
     }
-    // No message: remove the empty message card (page 1). Done last, after the
-    // other pages have been written, so none of their positions shift.
-    if (!hasMessage) {
-        pdfDoc.removePage(0);
-    }
-    const pdfBytes = await pdfDoc.save();
-    const fileName = `voucher-${Date.now()}.pdf`;
-    const outputPath = path_1.default.join(process.cwd(), 'uploads/vouchers', fileName);
-    fs_1.default.writeFileSync(outputPath, pdfBytes);
-    return { fileName, outputPath, hasMessage, pageCount: pdfDoc.getPageCount() };
+    return finishVoucher(pdfDoc, hasMessage);
 };
 exports.generateGiftVoucher = generateGiftVoucher;
 exports.normalizeVoucherMessage = normalizeVoucherMessage;
 exports.wrapText = wrapText;
 exports.VOUCHER_MESSAGE_MAX_LENGTH = VOUCHER_MESSAGE_MAX_LENGTH;
+exports.describeIncludes = describeIncludes;
+exports.formatValidUntil = formatValidUntil;
