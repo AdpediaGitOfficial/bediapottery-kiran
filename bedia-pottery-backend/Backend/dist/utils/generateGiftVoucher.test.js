@@ -265,3 +265,71 @@ describeWithFont('generateGiftVoucher — the newer, half-size template', () => 
         expect(result.pageCount).toBe(3);
     });
 });
+describeWithFont('generateGiftVoucher — where the template and fonts are read from', () => {
+    let workDir;
+    const base = {
+        guests: '2',
+        audience: 'Kids',
+        validUntil: new Date('2027-11-21T08:00:00Z'),
+        voucherCode: 'BPAB12CD',
+        clayType: 'Air-Dry Clay',
+        redeemUrl: 'https://example.com/redeem?ref=abc',
+        personalMessage: 'Happy Birthday!',
+    };
+    const standIn = async (file, width, height) => {
+        const template = await PDFDocument.create();
+        for (let i = 0; i < 3; i += 1)
+            template.addPage([width, height]);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, await template.save());
+    };
+    beforeEach(() => {
+        workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'voucher-assets-test-'));
+        jest.spyOn(process, 'cwd').mockReturnValue(workDir);
+        jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        // The font ships with the code in assets/voucher/fonts, as it does in the repo.
+        fs.mkdirSync(path.join(workDir, 'assets/voucher/fonts'), { recursive: true });
+        fs.copyFileSync(FONT_PATH, path.join(workDir, 'assets/voucher/fonts/Alata-Regular.ttf'));
+    });
+    afterEach(() => {
+        jest.restoreAllMocks();
+        fs.rmSync(workDir, { recursive: true, force: true });
+    });
+    const pageWidthOf = async (result) => {
+        const pdf = await PDFDocument.load(fs.readFileSync(result.outputPath));
+        return Math.round(pdf.getPages()[0].getSize().width);
+    };
+    it('works on a server with no uploads folder at all, using the files that ship with the code', async () => {
+        await standIn(path.join(workDir, 'assets/voucher/gift-voucher-template.pdf'), 419.25, 297.75);
+        const result = await generateGiftVoucher(base);
+        expect(result.pageCount).toBe(3);
+        expect(await pageWidthOf(result)).toBe(419);
+    });
+    it('creates the vouchers folder when it does not exist', async () => {
+        await standIn(path.join(workDir, 'assets/voucher/gift-voucher-template.pdf'), 419.25, 297.75);
+        expect(fs.existsSync(path.join(workDir, 'uploads/vouchers'))).toBe(false);
+        const result = await generateGiftVoucher(base);
+        expect(fs.existsSync(result.outputPath)).toBe(true);
+        expect(path.dirname(result.outputPath)).toBe(path.join(workDir, 'uploads/vouchers'));
+    });
+    it('a template placed in uploads wins over the one that ships with the code', async () => {
+        await standIn(path.join(workDir, 'assets/voucher/gift-voucher-template.pdf'), 419.25, 297.75);
+        // The older, larger artwork, as an existing server may still have it.
+        await standIn(path.join(workDir, 'uploads/templates/gift-voucher-template.pdf'), 874, 621);
+        const result = await generateGiftVoucher(base);
+        expect(await pageWidthOf(result)).toBe(874);
+    });
+    it('a font placed in uploads wins over the one that ships with the code', async () => {
+        await standIn(path.join(workDir, 'assets/voucher/gift-voucher-template.pdf'), 419.25, 297.75);
+        // An unreadable font in uploads proves it is the one chosen.
+        fs.mkdirSync(path.join(workDir, 'uploads/fonts'), { recursive: true });
+        fs.writeFileSync(path.join(workDir, 'uploads/fonts/Poppins-Regular.ttf'), 'not a font');
+        fs.writeFileSync(path.join(workDir, 'uploads/fonts/Poppins-Bold.ttf'), 'not a font');
+        await expect(generateGiftVoucher(base)).rejects.toBeTruthy();
+    });
+    it('falls back to Alata when Poppins is in neither place', async () => {
+        await standIn(path.join(workDir, 'assets/voucher/gift-voucher-template.pdf'), 419.25, 297.75);
+        const result = await generateGiftVoucher(base);
+        expect(result.pageCount).toBe(3);
+    });
+});

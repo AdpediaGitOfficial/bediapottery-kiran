@@ -99,6 +99,18 @@ function wrapText(text, font, fontSize, maxWidth) {
     return result;
 }
 /**
+ * Where a voucher file (template or font) is read from. A copy in `uploads/` wins,
+ * so a design swapped in on the server is used as it is; otherwise the copy that
+ * ships with the code in `assets/voucher/` is used, so a fresh checkout works
+ * without anything being copied by hand.
+ */
+function voucherAssetPath(uploadsRelative, bundledRelative) {
+    const uploaded = path_1.default.join(process.cwd(), 'uploads', uploadsRelative);
+    if (fs_1.default.existsSync(uploaded))
+        return uploaded;
+    return path_1.default.join(process.cwd(), 'assets/voucher', bundledRelative);
+}
+/**
  * Removes the empty message card when there is no message, saves the PDF and
  * reports what was made. Shared by both template layouts.
  */
@@ -110,7 +122,10 @@ async function finishVoucher(pdfDoc, hasMessage) {
     }
     const pdfBytes = await pdfDoc.save();
     const fileName = `voucher-${Date.now()}.pdf`;
-    const outputPath = path_1.default.join(process.cwd(), 'uploads/vouchers', fileName);
+    const outputDir = path_1.default.join(process.cwd(), 'uploads/vouchers');
+    // A new server has no vouchers folder yet.
+    fs_1.default.mkdirSync(outputDir, { recursive: true });
+    const outputPath = path_1.default.join(outputDir, fileName);
     fs_1.default.writeFileSync(outputPath, pdfBytes);
     return { fileName, outputPath, hasMessage, pageCount: pdfDoc.getPageCount() };
 }
@@ -132,9 +147,8 @@ const originOf = (page) => {
 };
 /** Poppins is the template's text font; Alata (always present) is the fallback. */
 async function embedCompactFonts(pdfDoc) {
-    const dir = path_1.default.join(process.cwd(), 'uploads/fonts');
     const read = (name) => {
-        const file = path_1.default.join(dir, name);
+        const file = voucherAssetPath(`fonts/${name}`, `fonts/${name}`);
         return fs_1.default.existsSync(file) ? new Uint8Array(fs_1.default.readFileSync(file)) : null;
     };
     const regular = read('Poppins-Regular.ttf');
@@ -145,8 +159,8 @@ async function embedCompactFonts(pdfDoc) {
             fontBold: await pdfDoc.embedFont(bold, { subset: true }),
         };
     }
-    console.warn('Poppins fonts not found in uploads/fonts; the voucher text uses Alata instead.');
-    const alata = await pdfDoc.embedFont(new Uint8Array(fs_1.default.readFileSync(path_1.default.join(dir, 'Alata-Regular.ttf'))), { subset: true });
+    console.warn('Poppins fonts not found in uploads/fonts or assets/voucher/fonts; the voucher text uses Alata instead.');
+    const alata = await pdfDoc.embedFont(new Uint8Array(fs_1.default.readFileSync(voucherAssetPath('fonts/Alata-Regular.ttf', 'fonts/Alata-Regular.ttf'))), { subset: true });
     return { font: alata, fontBold: alata };
 }
 /** Draws one line of text, shrunk (not below minSize) until it fits maxWidth. */
@@ -280,7 +294,7 @@ async function drawCompactVoucher(pdfDoc, pages, { personalMessage, guests, audi
 }
 // ─── main export ──────────────────────────────────────────────────────────────
 const generateGiftVoucher = async ({ personalMessage, guests, giftFor, giftValidity, voucherCode, clayType, redeemUrl, audience, validUntil, }) => {
-    const templatePath = path_1.default.join(process.cwd(), 'uploads/templates/gift-voucher-template.pdf');
+    const templatePath = voucherAssetPath('templates/gift-voucher-template.pdf', 'gift-voucher-template.pdf');
     const existingPdfBytes = new Uint8Array(fs_1.default.readFileSync(templatePath));
     const pdfDoc = await pdf_lib_1.PDFDocument.load(existingPdfBytes);
     pdfDoc.registerFontkit(fontkit_1.default);
@@ -304,7 +318,7 @@ const generateGiftVoucher = async ({ personalMessage, guests, giftFor, giftValid
     const page2 = pages[1];
     // Alata — the display font used by the template artwork. Alata ships only a
     // Regular weight, so it backs both the regular and "bold" text runs.
-    const alataBytes = new Uint8Array(fs_1.default.readFileSync(path_1.default.join(process.cwd(), 'uploads/fonts/Alata-Regular.ttf')));
+    const alataBytes = new Uint8Array(fs_1.default.readFileSync(voucherAssetPath('fonts/Alata-Regular.ttf', 'fonts/Alata-Regular.ttf')));
     const font = await pdfDoc.embedFont(alataBytes, { subset: true });
     const fontBold = font;
     const { width: pw1, height: ph1 } = page1.getSize();
