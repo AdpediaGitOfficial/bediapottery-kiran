@@ -1550,10 +1550,74 @@ const validateGiftVoucherUseCase = async (bookingId) => {
 };
 exports.validateGiftVoucherUseCase = validateGiftVoucherUseCase;
 // Confirm redemption — requires BOTH bookingId (from URL) AND voucherCode (typed by recipient).
+/**
+ * The booking made when a gift voucher is redeemed: a confirmed, scheduled
+ * session for the recipient. It is linked to the voucher's own booking and
+ * carries no amount (the voucher was paid for when it was bought), so revenue is
+ * never counted twice. Contact details come from the redeem page, falling back to
+ * what was saved with the gift and then to the buyer.
+ */
+const buildGiftSessionBooking = ({ purchase, slot, bookingDate, slotId, recipient }) => {
+    const gift = purchase.giftDetails || {};
+    const buyer = purchase.customer || {};
+    const fullName = String(recipient.recipientName || gift.recipientName || '')
+        .trim()
+        .replace(/\s+/g, ' ');
+    const [firstPart, ...rest] = fullName.split(' ');
+    return {
+        workshopId: purchase.workshopId,
+        bookingNumber: `WB-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        bookingDate,
+        slotId,
+        // Stamped here, as the payment webhook does for ordinary bookings, because a
+        // gift has no slot when it is paid for.
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        items: (purchase.items || []).map((item) => {
+            const plain = typeof item.toObject === 'function' ? item.toObject() : { ...item };
+            return { ...plain, subtotal: 0 };
+        }),
+        makingType: purchase.makingType,
+        totalPeople: purchase.totalPeople,
+        totalAmount: 0,
+        taxPercent: 0,
+        taxAmount: 0,
+        grandTotal: 0,
+        currency: purchase.currency,
+        userId: purchase.userId,
+        customer: {
+            firstName: firstPart || buyer.firstName || '-',
+            lastName: rest.join(' ') || (firstPart ? '-' : buyer.lastName || '-'),
+            phone: recipient.recipientPhone || gift.giftPhone || buyer.phone,
+            email: recipient.recipientEmail || gift.giftEmail || buyer.email,
+            address: recipient.recipientAddress || undefined,
+        },
+        bookingType: 'gift',
+        giftStatus: 'redeemed',
+        giftDetails: {
+            recipientName: fullName || gift.recipientName,
+            giftEmail: gift.giftEmail,
+            giftPhone: gift.giftPhone,
+            giftFor: gift.giftFor,
+            occasion: gift.occasion,
+            personalMessage: gift.personalMessage,
+        },
+        bookingStatus: 'confirmed',
+        paymentStatus: 'paid',
+        redeemedAt: new Date(),
+        redeemedFromBookingId: purchase._id,
+    };
+};
+exports.buildGiftSessionBooking = buildGiftSessionBooking;
 const confirmGiftRedemptionUseCase = async (data) => {
-    const { bookingId, voucherCode, bookingDate, slotId, recipientName, recipientPhone, recipientEmail, } = data;
+    const { bookingId, voucherCode, bookingDate, slotId, recipientName, recipientPhone, recipientEmail, recipientAddress, } = data;
     if (!(0, objectIdParser_1.ObjectID)(bookingId)) {
         throw new appError_1.default('Invalid booking reference', httpStatus_1.HttpStatus.BAD_REQUEST);
+    }
+    // The body is untyped JSON. A code sent as an object (e.g. {"$ne": null}) must
+    // never reach the database query as an operator.
+    if (typeof voucherCode !== 'string' || typeof slotId !== 'string' || typeof bookingDate !== 'string') {
+        throw new appError_1.default('Invalid voucher code', httpStatus_1.HttpStatus.BAD_REQUEST);
     }
     // Both bookingId AND voucherCode must match the same document
     const booking = await (0, workshopRepo_1.getBookingByVoucherCodeRepo)(bookingId, voucherCode);
@@ -1589,7 +1653,43 @@ const confirmGiftRedemptionUseCase = async (data) => {
     if (bookedCount + booking.totalPeople > MAX_CAPACITY) {
         throw new appError_1.default(`This slot is fully booked. Only ${MAX_CAPACITY - bookedCount} spot(s) remaining.`, httpStatus_1.HttpStatus.BAD_REQUEST);
     }
-    const updatedBooking = await (0, workshopRepo_1.redeemGiftBookingRepo)(booking._id.toString(), bookingDate, slotId);
+    // Redeeming makes a second booking for the session; the voucher's own booking
+    // stays as the sale. The voucher is claimed first, in one step that only one
+    // of two simultaneous requests can win, so it can never be redeemed twice.
+    const claimed = await (0, workshopRepo_1.claimGiftVoucherRepo)(booking._id, voucherCode);
+    if (!claimed) {
+        throw new appError_1.default('This gift voucher has already been redeemed', httpStatus_1.HttpStatus.BAD_REQUEST);
+    }
+    let sessionBooking = null;
+    try {
+        sessionBooking = await (0, workshopRepo_1.createWorkshopBookingRepo)(buildGiftSessionBooking({
+            purchase: booking,
+            slot,
+            bookingDate,
+            slotId,
+            recipient: { recipientName, recipientPhone, recipientEmail, recipientAddress },
+        }));
+        // The capacity check above cannot see a booking being made at this very
+        // moment. Now that the session holds its seats, count again: if it pushed the
+        // slot over capacity (or an event took the slot ahead of it), this request
+        // loses the race and gives everything back.
+        const { people: heldUpToThis, priorEvents } = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(bookingDate, slot.startTime, slot.endTime, sessionBooking._id);
+        const heldBeforeThis = heldUpToThis - booking.totalPeople;
+        if (priorEvents > 0 ||
+            heldUpToThis > (0, slotCapacity_1.resolveSlotCapacity)(booking.bookingType, heldBeforeThis)) {
+            throw new appError_1.default('This slot is fully booked. Please choose another time.', httpStatus_1.HttpStatus.BAD_REQUEST);
+        }
+        await (0, workshopRepo_1.linkRedeemedGiftBookingRepo)(booking._id, sessionBooking._id);
+    }
+    catch (error) {
+        // Nothing was kept: remove the session booking and make the voucher usable again.
+        if (sessionBooking) {
+            await (0, workshopRepo_1.discardGiftSessionBookingRepo)(sessionBooking._id).catch((cleanupError) => console.error('Could not remove session booking:', cleanupError));
+        }
+        await (0, workshopRepo_1.releaseGiftVoucherClaimRepo)(booking._id).catch((cleanupError) => console.error('Could not release gift voucher:', cleanupError));
+        throw error;
+    }
+    const updatedBooking = sessionBooking;
     // Notify the recipient (if we have their email) and the buyer that the gift
     // is now a confirmed, scheduled booking. The mail service swallows its own
     // errors, so a mail failure never blocks the redemption.
@@ -1622,6 +1722,7 @@ const confirmGiftRedemptionUseCase = async (data) => {
     }
     return {
         bookingNumber: updatedBooking?.bookingNumber,
+        voucherBookingNumber: booking.bookingNumber,
         workshopTitle: workshop.title,
         bookingDate,
         slot: {

@@ -24,7 +24,12 @@ jest.mock('../models/workshopModel', () => ({
 }));
 jest.mock('../models/workshopBookingModel', () => ({
     __esModule: true,
-    default: { aggregate: jest.fn(async () => []), updateMany: jest.fn(async () => ({})) },
+    default: {
+        aggregate: jest.fn(async () => []),
+        updateMany: jest.fn(async () => ({})),
+        updateOne: jest.fn(async () => ({})),
+        findOneAndUpdate: jest.fn(async () => ({})),
+    },
 }));
 jest.mock('../models/workshopOrders', () => ({
     __esModule: true,
@@ -69,6 +74,27 @@ describe('seat holds', () => {
         await (0, workshopRepo_1.discardPendingCheckoutRepo)({ bookingIds: ['b1'], orderId: 'o1' });
         expect(bookingModel.updateMany.mock.calls[0][0].paymentStatus).toEqual({ $ne: 'paid' });
         expect(orderModel.updateOne.mock.calls[0][0].paymentStatus).toEqual({ $ne: 'paid' });
+    });
+    it('a gift voucher can only be claimed once: paid, unredeemed, right code', async () => {
+        await (0, workshopRepo_1.claimGiftVoucherRepo)('b1', 'BPAB12CD');
+        const [filter, update] = bookingModel.findOneAndUpdate.mock.calls[0];
+        expect(filter).toEqual({
+            _id: 'b1',
+            'giftDetails.voucherCode': 'BPAB12CD',
+            bookingType: 'gift',
+            isDeleted: false,
+            paymentStatus: 'paid',
+            giftStatus: { $ne: 'redeemed' },
+        });
+        expect(update.$set.giftStatus).toBe('redeemed');
+        expect(update.$set.redeemedAt).toBeInstanceOf(Date);
+    });
+    it('a released claim makes the voucher usable again', async () => {
+        await (0, workshopRepo_1.releaseGiftVoucherClaimRepo)('b1');
+        const [filter, update] = bookingModel.updateOne.mock.calls[0];
+        expect(filter).toEqual({ _id: 'b1' });
+        expect(update.$set.giftStatus).toBe('completed');
+        expect(update.$unset).toEqual({ redeemedAt: 1, redeemedBookingId: 1 });
     });
     it('marks an order paid only when it is not paid already', async () => {
         await (0, workshopRepo_1.markOrderPaidIfPendingRepo)('o1', 'pi_1');

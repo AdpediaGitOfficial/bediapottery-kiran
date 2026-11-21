@@ -141,6 +141,20 @@ const workshopBookingSchema = new mongoose_1.Schema({
     },
     giftValidity: { type: Date },
     /**
+     * A gift voucher and the session booked with it are two bookings.
+     *   - The purchase booking is the sale: paid, with no date or slot. Once the
+     *     voucher is redeemed it records when (`redeemedAt`) and which booking
+     *     the session became (`redeemedBookingId`).
+     *   - The session booking is made at redemption: it has the date and slot and
+     *     points back to the voucher it came from (`redeemedFromBookingId`). It
+     *     carries no amount, so the payment is only ever counted once.
+     * Vouchers redeemed before this existed are a single merged booking and have
+     * neither link.
+     */
+    redeemedAt: { type: Date },
+    redeemedBookingId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'workshopBookings' },
+    redeemedFromBookingId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'workshopBookings' },
+    /**
      * The studio journey for Terracotta and Ceramic pieces.
      *
      * Absent until the admin completes the workshop and starts tracking, which

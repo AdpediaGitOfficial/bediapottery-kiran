@@ -530,7 +530,7 @@ exports.validateGiftVoucher = (0, express_async_handler_1.default)(async (req, r
     });
 });
 exports.confirmGiftRedemption = (0, express_async_handler_1.default)(async (req, res) => {
-    const { bookingId, voucherCode, bookingDate, slotId, recipientName, recipientPhone, recipientEmail, } = req.body;
+    const { bookingId, voucherCode, bookingDate, slotId, recipientName, recipientPhone, recipientEmail, recipientAddress, } = req.body;
     if (!bookingId || !voucherCode || !bookingDate || !slotId) {
         res.status(httpStatus_1.HttpStatus.BAD_REQUEST).json({
             success: false,
@@ -546,6 +546,7 @@ exports.confirmGiftRedemption = (0, express_async_handler_1.default)(async (req,
         recipientName,
         recipientPhone,
         recipientEmail,
+        recipientAddress,
     });
     res.status(httpStatus_1.HttpStatus.OK).json({
         success: true,

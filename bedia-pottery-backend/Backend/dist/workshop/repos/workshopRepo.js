@@ -1230,6 +1230,37 @@ const redeemGiftBookingRepo = async (bookingId, bookingDate, slotId) => {
     }, { new: true });
 };
 exports.redeemGiftBookingRepo = redeemGiftBookingRepo;
+/**
+ * Marks a gift voucher redeemed, once. The update only matches a paid voucher
+ * that is not redeemed yet, so of two simultaneous redemptions exactly one gets
+ * the document back and the other gets null.
+ */
+const claimGiftVoucherRepo = async (bookingId, voucherCode) => {
+    return workshopBookingModel_1.default.findOneAndUpdate({
+        _id: bookingId,
+        'giftDetails.voucherCode': voucherCode,
+        bookingType: 'gift',
+        isDeleted: false,
+        paymentStatus: 'paid',
+        giftStatus: { $ne: 'redeemed' },
+    }, { $set: { giftStatus: 'redeemed', redeemedAt: new Date() } }, { new: true });
+};
+exports.claimGiftVoucherRepo = claimGiftVoucherRepo;
+/** Undoes a claim when the session could not be booked, so the voucher can be used again. */
+const releaseGiftVoucherClaimRepo = async (bookingId) => {
+    return workshopBookingModel_1.default.updateOne({ _id: bookingId }, { $set: { giftStatus: 'completed' }, $unset: { redeemedAt: 1, redeemedBookingId: 1 } });
+};
+exports.releaseGiftVoucherClaimRepo = releaseGiftVoucherClaimRepo;
+/** Links the purchase booking to the session booking made from it. */
+const linkRedeemedGiftBookingRepo = async (purchaseBookingId, sessionBookingId) => {
+    return workshopBookingModel_1.default.updateOne({ _id: purchaseBookingId }, { $set: { redeemedBookingId: sessionBookingId } });
+};
+exports.linkRedeemedGiftBookingRepo = linkRedeemedGiftBookingRepo;
+/** Removes a session booking that was written but could not be kept. */
+const discardGiftSessionBookingRepo = async (sessionBookingId) => {
+    return workshopBookingModel_1.default.updateOne({ _id: sessionBookingId }, { $set: { isDeleted: true } });
+};
+exports.discardGiftSessionBookingRepo = discardGiftSessionBookingRepo;
 const fetchPotteryWorkshopCapacity = async (data) => {
     const { bookingDate, startTime, endTime } = data;
     // A window the studio closed has no seats at all, whatever is booked in it.
