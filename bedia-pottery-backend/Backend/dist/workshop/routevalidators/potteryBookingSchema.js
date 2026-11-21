@@ -71,7 +71,7 @@ exports.potteryBookingSchema = {
                             giftPhone: { type: 'string', nullable: true },
                             giftFor: { type: 'string', nullable: true },
                             occasion: { type: 'string', nullable: true },
-                            personalMessage: { type: 'string', nullable: true },
+                            personalMessage: { type: 'string', maxLength: 250, nullable: true },
                         },
                         required: [],
                         additionalProperties: false,

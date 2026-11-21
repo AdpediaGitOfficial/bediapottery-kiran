@@ -28,10 +28,45 @@ function placeText(page, text, vx, vy, opts, angle, pw, ph) {
     const rotate = (0, pdf_lib_1.degrees)((360 - angle) % 360);
     page.drawText(text, { x, y, rotate, ...opts });
 }
+// Same limit as the message box on the gift card page.
+const VOUCHER_MESSAGE_MAX_LENGTH = 250;
+/**
+ * Turns what the buyer typed into the text printed on the voucher.
+ *
+ * The request passes through an HTML sanitiser, which writes "<" as "&lt;" and
+ * ">" as "&gt;"; those are turned back so "I <3 you" prints as typed. Anything
+ * left over is trimmed, so a message of only spaces or line breaks counts as no
+ * message at all. An empty string means "no message".
+ */
+function normalizeVoucherMessage(raw) {
+    if (typeof raw !== 'string')
+        return '';
+    return (raw
+        // Real tags that survived the sanitiser (<b>, <br>) are not part of a message.
+        .replace(/<\/?[a-z][^>]*>/gi, '')
+        // "&amp;" last, so an escaped "&amp;lt;" prints as the literal "&lt;".
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#0?39;/g, "'")
+        .replace(/&amp;/g, '&')
+        // The template font has no emoji, which would print as empty boxes.
+        .replace(/[\p{Extended_Pictographic}\uFE0E\uFE0F]/gu, '')
+        // Invisible characters would make a blank message look like a real one.
+        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+        .slice(0, VOUCHER_MESSAGE_MAX_LENGTH)
+        .trim());
+}
 // Word-wrap a block of text to fit within maxWidth (in pts).
-// Respects explicit \n line breaks, then wraps each segment by word.
+// Respects explicit \n line breaks, then wraps each segment by word. A single
+// word wider than the card (a long run with no spaces) is broken across lines
+// instead of running past the border.
 function wrapText(text, font, fontSize, maxWidth) {
     const result = [];
+    const fits = (value) => font.widthOfTextAtSize(value, fontSize) <= maxWidth;
     for (const paragraph of text.split('\n')) {
         const words = paragraph.trim().split(/\s+/).filter(Boolean);
         if (!words.length) {
@@ -39,15 +74,24 @@ function wrapText(text, font, fontSize, maxWidth) {
             continue;
         }
         let line = '';
-        for (const word of words) {
-            const candidate = line ? `${line} ${word}` : word;
-            if (font.widthOfTextAtSize(candidate, fontSize) > maxWidth && line) {
+        for (let word of words) {
+            let candidate = line ? `${line} ${word}` : word;
+            if (!fits(candidate) && line) {
                 result.push(line);
-                line = word;
+                line = '';
+                candidate = word;
             }
-            else {
-                line = candidate;
+            // Break what is still too wide, one character at a time.
+            while (!fits(candidate) && Array.from(candidate).length > 1) {
+                const chars = Array.from(candidate);
+                let cut = chars.length - 1;
+                while (cut > 1 && !fits(chars.slice(0, cut).join(''))) {
+                    cut -= 1;
+                }
+                result.push(chars.slice(0, cut).join(''));
+                candidate = chars.slice(cut).join('');
             }
+            line = candidate;
         }
         if (line)
             result.push(line);
@@ -77,17 +121,41 @@ const generateGiftVoucher = async ({ personalMessage, guests, giftFor, giftValid
     // ── PAGE 1 — personal message ───────────────────────────────────────────────
     // The message is vertically centred within the bordered card, left-aligned
     // horizontally, and wraps line by line.
-    const MSG_CENTER_Y = 300; // vertical centre of the card
-    const MSG_MAX_WIDTH = 640;
-    const MSG_LEFT_X = (pw1 - MSG_MAX_WIDTH) / 2; // left edge of the text block
-    const msgFontSize = 18;
-    const msgLineGap = Math.round(msgFontSize * 0.55);
-    const msgLines = wrapText(personalMessage || '', font, msgFontSize, MSG_MAX_WIDTH);
-    const totalMsgH = msgLines.length * msgFontSize + (msgLines.length - 1) * msgLineGap;
-    let msgVY = MSG_CENTER_Y + totalMsgH / 2 - msgFontSize;
-    for (const line of msgLines) {
-        placeText(page1, line, MSG_LEFT_X, msgVY, { size: msgFontSize, font, color: (0, pdf_lib_1.rgb)(0.1, 0.1, 0.1) }, angle1, pw1, ph1);
-        msgVY -= msgFontSize + msgLineGap;
+    // Page 1 of the template is an empty message card. It is only part of the
+    // voucher when the buyer wrote a message; without one, that page is removed
+    // below and the voucher starts at the "Gift Voucher" page.
+    const message = normalizeVoucherMessage(personalMessage);
+    const hasMessage = message.length > 0;
+    if (hasMessage) {
+        const MSG_CENTER_Y = 300; // vertical centre of the card
+        const MSG_MAX_WIDTH = 640;
+        const MSG_MAX_HEIGHT = 300; // the card's usable height
+        const MSG_LEFT_X = (pw1 - MSG_MAX_WIDTH) / 2; // left edge of the text block
+        // 18 pt, shrunk a point at a time (to 10 pt) if the message is too tall for
+        // the card. A message of many short lines that is still too tall at 10 pt
+        // is run together as one paragraph, which always fits (250 characters at most).
+        const fit = (text) => {
+            let size = 18;
+            for (;;) {
+                const gap = Math.round(size * 0.55);
+                const lines = wrapText(text, font, size, MSG_MAX_WIDTH);
+                const height = lines.length * size + (lines.length - 1) * gap;
+                if (height <= MSG_MAX_HEIGHT || size <= 10) {
+                    return { size, gap, lines, height };
+                }
+                size -= 1;
+            }
+        };
+        let layout = fit(message);
+        if (layout.height > MSG_MAX_HEIGHT) {
+            layout = fit(message.replace(/\s*\n\s*/g, ' '));
+        }
+        const { size: msgFontSize, gap: msgLineGap, lines: msgLines, height: totalMsgH } = layout;
+        let msgVY = MSG_CENTER_Y + totalMsgH / 2 - msgFontSize;
+        for (const line of msgLines) {
+            placeText(page1, line, MSG_LEFT_X, msgVY, { size: msgFontSize, font, color: (0, pdf_lib_1.rgb)(0.1, 0.1, 0.1) }, angle1, pw1, ph1);
+            msgVY -= msgFontSize + msgLineGap;
+        }
     }
     // ── PAGE 2 — clay type, voucher code, banner ────────────────────────────────
     const VOUCHER_CENTER_X = 639; // matches the "Gift Voucher" heading centre
@@ -202,10 +270,18 @@ const generateGiftVoucher = async ({ personalMessage, guests, giftFor, giftValid
             page3.node.set(pdf_lib_1.PDFName.of('Annots'), pdfDoc.context.obj([annotRef]));
         }
     }
+    // No message: remove the empty message card (page 1). Done last, after the
+    // other pages have been written, so none of their positions shift.
+    if (!hasMessage) {
+        pdfDoc.removePage(0);
+    }
     const pdfBytes = await pdfDoc.save();
     const fileName = `voucher-${Date.now()}.pdf`;
     const outputPath = path_1.default.join(process.cwd(), 'uploads/vouchers', fileName);
     fs_1.default.writeFileSync(outputPath, pdfBytes);
-    return { fileName, outputPath };
+    return { fileName, outputPath, hasMessage, pageCount: pdfDoc.getPageCount() };
 };
 exports.generateGiftVoucher = generateGiftVoucher;
+exports.normalizeVoucherMessage = normalizeVoucherMessage;
+exports.wrapText = wrapText;
+exports.VOUCHER_MESSAGE_MAX_LENGTH = VOUCHER_MESSAGE_MAX_LENGTH;
