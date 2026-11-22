@@ -724,6 +724,8 @@ const getCartUseCase = async (userId) => {
     return { cart: updatedCart, removedExpiredItems: expiredIndexes.length };
 };
 exports.getCartUseCase = getCartUseCase;
+const CART_OVERLAP_MESSAGE = 'You already have a session in your cart at an overlapping time on this date. Only one booking can hold a time slot, so please choose another time.';
+exports.CART_OVERLAP_MESSAGE = CART_OVERLAP_MESSAGE;
 const addToCartUseCase = async (data) => {
     const { userId, workshopId, bookingDate, slotId, optionId, people, adult, child, handBuild, wheelPottery, bookingType = 'normal', workshopType, giftDetails, } = data;
     const workshop = await (0, workshopRepo_1.getWorkshopByIdRepo)(workshopId);
@@ -767,6 +769,25 @@ const addToCartUseCase = async (data) => {
             userId,
             items: [],
         });
+    }
+    // One booking owns a time window, so a cart cannot hold two different sessions
+    // at overlapping times on the same day (which would be refused at checkout).
+    // Lines for the same session — same workshop and slot — belong together.
+    if (bookingType !== 'gift' && slot) {
+        for (const item of cart.items) {
+            if (!item.bookingDate || item.bookingDate !== bookingDate || !item.slotId)
+                continue;
+            if (String(item.workshopId) === String(workshopId) && String(item.slotId) === String(slotId))
+                continue;
+            const otherWorkshop = String(item.workshopId) === String(workshopId)
+                ? workshop
+                : await (0, workshopRepo_1.getWorkshopByIdRepo)(String(item.workshopId));
+            const otherSlot = otherWorkshop?.defaultSlots?.find((s) => String(s._id) === String(item.slotId));
+            if (otherSlot &&
+                (0, slotOverlap_1.doSlotsOverlap)({ startTime: otherSlot.startTime, endTime: otherSlot.endTime }, { startTime: slot.startTime, endTime: slot.endTime })) {
+                throw new appError_1.default(CART_OVERLAP_MESSAGE, 400);
+            }
+        }
     }
     // Check existing item.
     // Gift items are never merged — each gift can target a different recipient,

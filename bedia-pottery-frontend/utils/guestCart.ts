@@ -9,6 +9,7 @@ import {
   useGuestCartStore,
 } from '@/store/guestCartStore'
 import { DEFAULT_VAT_RATE } from '@/utils/cartTotals'
+import { slotsOverlap } from '@/utils/slotTimes'
 
 const inFlightBookingKeys = new Set<string>()
 
@@ -196,6 +197,51 @@ export function guestCartToCartData(
   ]
 }
 
+interface TimedCartLine {
+  workshopId?: unknown
+  bookingDate?: string
+  slotId?: unknown
+  startTime?: string
+  endTime?: string
+  bookingType?: string
+}
+
+/**
+ * One booking owns a time window, so a cart cannot hold two different sessions at
+ * overlapping times on the same day: the checkout would refuse it. Lines for the
+ * same session (same workshop and slot) belong together, and gifts have no time.
+ * Returns the line the new one clashes with, if any.
+ */
+function findOverlappingSession<T extends TimedCartLine>(
+  existing: T[],
+  candidate: TimedCartLine
+): T | undefined {
+  if (candidate.bookingType === 'gift' || !candidate.bookingDate) return undefined
+
+  const candidateWorkshop = normalizeWorkshopId(candidate.workshopId)
+  const candidateSlot = String(candidate.slotId ?? '')
+
+  return existing.find(line => {
+    if (line.bookingType === 'gift' || !line.bookingDate) return false
+    if (normalizeDate(line.bookingDate) !== normalizeDate(candidate.bookingDate)) return false
+
+    const sameSession =
+      normalizeWorkshopId(line.workshopId) === candidateWorkshop &&
+      String(line.slotId ?? '') === candidateSlot
+    if (sameSession) return false
+
+    return slotsOverlap(line, candidate)
+  })
+}
+
+function overlapMessage(line: TimedCartLine): string {
+  const when = line.startTime && line.endTime ? ` (${line.startTime} - ${line.endTime})` : ''
+  return (
+    `You already have a session in your cart at an overlapping time on this date${when}. ` +
+    'Only one booking can hold a time slot, so please choose another time.'
+  )
+}
+
 export async function addToCartOrGuest(
   bookingData: Omit<BookingData, 'userId'>,
   display: GuestCartDisplayInfo,
@@ -211,6 +257,14 @@ export async function addToCartOrGuest(
    * ============================
    */
   if (!user?.token || !user?.userId) {
+    const clash = findOverlappingSession(
+      useGuestCartStore.getState().items.map(item => item.bookingData),
+      bookingData
+    )
+    if (clash) {
+      throw new Error(overlapMessage(clash))
+    }
+
     const added = useGuestCartStore
       .getState()
       .addItem({
@@ -265,6 +319,11 @@ export async function addToCartOrGuest(
       throw new Error(
         'This workshop is already in your cart for the selected date and time.'
       )
+    }
+
+    const clash = findOverlappingSession(existingItems, bookingData)
+    if (clash) {
+      throw new Error(overlapMessage(clash))
     }
 
     /**
