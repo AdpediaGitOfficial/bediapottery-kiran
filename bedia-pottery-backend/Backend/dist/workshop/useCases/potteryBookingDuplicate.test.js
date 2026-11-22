@@ -17,7 +17,7 @@ const mockStore = {
     orders: [],
     bookings: [],
     heldBeforeNewBooking: 0,
-    priorEvents: 0,
+    priorBookings: 0,
     nextId: 1,
 };
 const mockId = () => String(mockStore.nextId++).padStart(24, '0');
@@ -86,11 +86,12 @@ jest.mock('../repos/workshopRepo', () => ({
         const own = mockStore.bookings.find((b) => b._id === bookingId);
         return {
             people: mockStore.heldBeforeNewBooking + own.totalPeople,
-            priorEvents: mockStore.priorEvents,
+            priorBookings: mockStore.priorBookings,
         };
     }),
 }));
 const workshopUseCase_1 = require("./workshopUseCase");
+const { SLOT_UNAVAILABLE_REASON } = require("../../utils/slotCapacity");
 const stripe_1 = require("../../config/stripe");
 const WORKSHOP_ID = '6a8d776872270315b88c5000';
 const SLOT_ID = '6a8d776872270315b88c5dde';
@@ -130,7 +131,7 @@ beforeEach(() => {
     mockStore.orders = [];
     mockStore.bookings = [];
     mockStore.heldBeforeNewBooking = 0;
-    mockStore.priorEvents = 0;
+    mockStore.priorBookings = 0;
     mockStore.nextId = 1;
     mockStore.workshop = buildWorkshop();
     jest.clearAllMocks();
@@ -201,32 +202,33 @@ describe('potteryBookingUseCase — duplicate submits', () => {
     });
 });
 describe('potteryBookingUseCase — seats', () => {
-    it('rejects up front when the slot is already full', async () => {
-        mockStore.heldBeforeNewBooking = 11;
+    it('rejects up front when the slot already has a booking, however small', async () => {
+        mockStore.heldBeforeNewBooking = 2;
         await expect((0, workshopUseCase_1.potteryBookingUseCase)(request())).rejects.toMatchObject({
-            message: 'Slot capacity exceeded',
+            message: SLOT_UNAVAILABLE_REASON,
         });
         expect(mockStore.bookings).toHaveLength(0);
     });
-    it('backs out when a racing checkout took the seats between the check and the write', async () => {
+    it('backs out when a racing checkout took the slot between the check and the write', async () => {
         const repo = require('../repos/workshopRepo');
         // The first count still looks free (nobody had written yet) ...
         repo.getSlotBookedCount.mockResolvedValueOnce(0);
-        // ... but once this booking exists, 11 seats are already held ahead of it.
-        mockStore.heldBeforeNewBooking = 11;
+        // ... but once this booking exists, another one was created ahead of it.
+        mockStore.heldBeforeNewBooking = 2;
+        mockStore.priorBookings = 1;
         await expect((0, workshopUseCase_1.potteryBookingUseCase)(request())).rejects.toMatchObject({
-            message: 'Slot capacity exceeded',
+            message: SLOT_UNAVAILABLE_REASON,
         });
         expect(mockStore.bookings.every((b) => b.isDeleted)).toBe(true);
         expect(stripe_1.stripe.checkout.sessions.create).not.toHaveBeenCalled();
     });
-    it('backs out when an event was created ahead of it in the same slot, even with seats to spare', async () => {
+    it('backs out when any booking was created ahead of it in the same slot, even with seats to spare', async () => {
         const repo = require('../repos/workshopRepo');
         repo.getSlotBookedCount.mockResolvedValueOnce(0);
-        // Only 2 people held in total, so there is room — but one of them is an event.
-        mockStore.priorEvents = 1;
+        // Only 2 people held in total, so there are seats — but the slot belongs to the earlier booking.
+        mockStore.priorBookings = 1;
         await expect((0, workshopUseCase_1.potteryBookingUseCase)(request())).rejects.toMatchObject({
-            message: 'Slot capacity exceeded',
+            message: SLOT_UNAVAILABLE_REASON,
         });
         expect(mockStore.bookings.every((b) => b.isDeleted)).toBe(true);
         expect(stripe_1.stripe.checkout.sessions.create).not.toHaveBeenCalled();
@@ -237,6 +239,41 @@ describe('potteryBookingUseCase — seats', () => {
         events.workshops[0].items[0].people = 12;
         await expect((0, workshopUseCase_1.potteryBookingUseCase)(events)).resolves.toHaveProperty('checkoutUrl');
         expect(mockStore.bookings.filter((b) => !b.isDeleted)).toHaveLength(1);
+    });
+    describe('two sessions in the same cart', () => {
+        const SLOT_B = '6a8d776872270315b88c5ddf';
+        const SLOT_C = '6a8d776872270315b88c5de0';
+        const secondEntry = (slotId) => {
+            const second = JSON.parse(JSON.stringify(request().workshops[0]));
+            second.slotId = slotId;
+            return second;
+        };
+        beforeEach(() => {
+            // B overlaps the first slot (10:30 - 12:00); C is in the afternoon.
+            mockStore.workshop.defaultSlots.push({ _id: idOf(SLOT_B), startTime: '11:00 AM', endTime: '1:00 PM', capacity: 12 }, { _id: idOf(SLOT_C), startTime: '2:00 PM', endTime: '3:30 PM', capacity: 12 });
+        });
+        it('are refused when they are at overlapping times on the same day, as one booking owns a window', async () => {
+            const cart = request();
+            cart.workshops.push(secondEntry(SLOT_B));
+            await expect((0, workshopUseCase_1.potteryBookingUseCase)(cart)).rejects.toMatchObject({
+                message: 'Two of the selected sessions are at the same time. Please book them separately.',
+            });
+            expect(mockStore.bookings).toHaveLength(0);
+            expect(stripe_1.stripe.checkout.sessions.create).not.toHaveBeenCalled();
+        });
+        it('are accepted when they are at different times', async () => {
+            const cart = request();
+            cart.workshops.push(secondEntry(SLOT_C));
+            await expect((0, workshopUseCase_1.potteryBookingUseCase)(cart)).resolves.toHaveProperty('checkoutUrl');
+            expect(mockStore.bookings.filter((b) => !b.isDeleted)).toHaveLength(2);
+        });
+        it('are accepted when they are on different days', async () => {
+            const cart = request();
+            const later = secondEntry(SLOT_B);
+            later.bookingDate = '2099-03-03';
+            cart.workshops.push(later);
+            await expect((0, workshopUseCase_1.potteryBookingUseCase)(cart)).resolves.toHaveProperty('checkoutUrl');
+        });
     });
     it('gives the seats back when the Stripe session cannot be created', async () => {
         stripe_1.stripe.checkout.sessions.create.mockRejectedValueOnce(new Error('stripe is down'));

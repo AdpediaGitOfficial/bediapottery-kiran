@@ -9,6 +9,7 @@ const objectIdParser_1 = require("../../utils/objectIdParser");
 const uaeTime_1 = require("../../utils/uaeTime");
 const slotCapacity_1 = require("../../utils/slotCapacity");
 const workshopOptionPricing_1 = require("../../utils/workshopOptionPricing");
+const slotOverlap_1 = require("../../utils/slotOverlap");
 const appError_1 = __importDefault(require("../../common/appError"));
 const httpStatus_1 = require("../../common/httpStatus");
 const careerRepo_1 = require("../../careers/repos/careerRepo");
@@ -370,8 +371,11 @@ const createWorkshopBookingUseCase = async (data) => {
             //   throw new AppError('Slot capacity exceeded', HttpStatus.BAD_REQUEST);
             // }
             const bookedCount = await (0, workshopRepo_1.getSlotBookedCount)(workshopInput.bookingDate, slot.startTime, slot.endTime);
-            // Events get 25 seats only while nothing else holds the slot; otherwise
-            // they share the ordinary studio capacity like any other booking.
+            // One booking owns a time window: any booking already in the slot closes it.
+            if (bookedCount > 0) {
+                throw new appError_1.default(slotCapacity_1.SLOT_UNAVAILABLE_REASON, httpStatus_1.HttpStatus.BAD_REQUEST);
+            }
+            // Events get 25 seats; everything else the studio's ordinary capacity.
             if ((0, slotCapacity_1.isEventBlockedByExistingBookings)(data.bookingType, bookedCount, totalRequestedPeople)) {
                 throw new appError_1.default(slotCapacity_1.EVENT_SLOT_NOT_EXCLUSIVE_REASON, httpStatus_1.HttpStatus.BAD_REQUEST);
             }
@@ -1086,8 +1090,11 @@ const checkoutCartUseCase = async (data) => {
                 //   group.slotId,
                 // );
                 const bookedCount = await (0, workshopRepo_1.getSlotBookedCount)(group.bookingDate, slot.startTime, slot.endTime);
-                // Events get 25 seats only while nothing else holds the slot; otherwise
-                // they share the ordinary studio capacity like any other booking.
+                // One booking owns a time window: any booking already in the slot closes it.
+                if (bookedCount > 0) {
+                    throw new appError_1.default(slotCapacity_1.SLOT_UNAVAILABLE_REASON, 400);
+                }
+                // Events get 25 seats; everything else the studio's ordinary capacity.
                 if ((0, slotCapacity_1.isEventBlockedByExistingBookings)(group.bookingType, bookedCount, totalPeople)) {
                     throw new appError_1.default(slotCapacity_1.EVENT_SLOT_NOT_EXCLUSIVE_REASON, 400);
                 }
@@ -1324,8 +1331,11 @@ const potteryBookingUseCase = async (data) => {
             const totalPeople = entry.items.reduce((sum, i) => sum + i.people, 0);
             if (!isGift && slot) {
                 const bookedCount = await (0, workshopRepo_1.getSlotBookedCount)(entry.bookingDate, slot.startTime, slot.endTime);
-                // Events get 25 seats only while nothing else holds the slot; otherwise
-                // they share the ordinary studio capacity like any other booking.
+                // One booking owns a time window: any booking already in the slot closes it.
+                if (bookedCount > 0) {
+                    throw new appError_1.default(slotCapacity_1.SLOT_UNAVAILABLE_REASON, 400);
+                }
+                // Events get 25 seats; everything else the studio's ordinary capacity.
                 if ((0, slotCapacity_1.isEventBlockedByExistingBookings)(entry.bookingType, bookedCount, totalPeople)) {
                     throw new appError_1.default(slotCapacity_1.EVENT_SLOT_NOT_EXCLUSIVE_REASON, 400);
                 }
@@ -1375,6 +1385,21 @@ const potteryBookingUseCase = async (data) => {
                 grandTotal,
             });
         }
+        // One booking owns a time window, so two sessions in this same request at
+        // overlapping times on the same day cannot both be booked. The slot checks
+        // above only see bookings already saved, not the rest of this request.
+        for (let i = 0; i < preparedEntries.length; i += 1) {
+            for (let j = i + 1; j < preparedEntries.length; j += 1) {
+                const a = preparedEntries[i];
+                const b = preparedEntries[j];
+                if (a.isGift || b.isGift || !a.slot || !b.slot)
+                    continue;
+                if (a.entry.bookingDate === b.entry.bookingDate &&
+                    (0, slotOverlap_1.doSlotsOverlap)({ startTime: a.slot.startTime, endTime: a.slot.endTime }, { startTime: b.slot.startTime, endTime: b.slot.endTime })) {
+                    throw new appError_1.default('Two of the selected sessions are at the same time. Please book them separately.', 400);
+                }
+            }
+        }
         // PASS 2 — everything checked out, so write the bookings and the order.
         const holdExpiresAt = (0, workshopRepo_1.seatHoldExpiry)();
         const orderNumber = `ORD-${Date.now()}`;
@@ -1416,11 +1441,13 @@ const potteryBookingUseCase = async (data) => {
             // if it pushed the slot over capacity, this request is the one that
             // loses the race and gives everything back.
             if (!isGift && prepared.slot) {
-                const { people: heldUpToThis, priorEvents } = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(entry.bookingDate, prepared.slot.startTime, prepared.slot.endTime, booking._id);
+                const { people: heldUpToThis, priorBookings } = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(entry.bookingDate, prepared.slot.startTime, prepared.slot.endTime, booking._id);
                 const heldBeforeThis = heldUpToThis - totalPeople;
-                // An event created ahead of this booking owns the whole slot.
-                if (priorEvents > 0 ||
-                    heldUpToThis > (0, slotCapacity_1.resolveSlotCapacity)(entry.bookingType, heldBeforeThis)) {
+                // A booking created ahead of this one owns the slot.
+                if (priorBookings > 0) {
+                    throw new appError_1.default(slotCapacity_1.SLOT_UNAVAILABLE_REASON, 400);
+                }
+                if (heldUpToThis > (0, slotCapacity_1.resolveSlotCapacity)(entry.bookingType, heldBeforeThis)) {
                     throw new appError_1.default('Slot capacity exceeded', 400);
                 }
             }
@@ -1644,14 +1671,12 @@ const confirmGiftRedemptionUseCase = async (data) => {
     // A voucher cannot be redeemed into a window the studio has closed.
     await (0, blockedTimeUseCase_1.assertSlotNotBlocked)(bookingDate, slot);
     const bookedCount = await (0, workshopRepo_1.getSlotBookedCount)(bookingDate, slot.startTime, slot.endTime);
-    // Events get 25 seats only while nothing else holds the slot; otherwise they
-    // share the ordinary studio capacity like any other booking.
-    if ((0, slotCapacity_1.isEventBlockedByExistingBookings)(booking.bookingType, bookedCount, booking.totalPeople)) {
-        throw new appError_1.default(slotCapacity_1.EVENT_SLOT_NOT_EXCLUSIVE_REASON, httpStatus_1.HttpStatus.BAD_REQUEST);
+    // One booking owns a time window: any booking already in the slot closes it.
+    if (bookedCount > 0) {
+        throw new appError_1.default(slotCapacity_1.SLOT_UNAVAILABLE_REASON, httpStatus_1.HttpStatus.BAD_REQUEST);
     }
-    const MAX_CAPACITY = (0, slotCapacity_1.resolveSlotCapacity)(booking.bookingType, bookedCount);
-    if (bookedCount + booking.totalPeople > MAX_CAPACITY) {
-        throw new appError_1.default(`This slot is fully booked. Only ${MAX_CAPACITY - bookedCount} spot(s) remaining.`, httpStatus_1.HttpStatus.BAD_REQUEST);
+    if (booking.totalPeople > (0, slotCapacity_1.resolveSlotCapacity)(booking.bookingType, bookedCount)) {
+        throw new appError_1.default('This voucher has more guests than a time slot can seat.', httpStatus_1.HttpStatus.BAD_REQUEST);
     }
     // Redeeming makes a second booking for the session; the voucher's own booking
     // stays as the sale. The voucher is claimed first, in one step that only one
@@ -1673,11 +1698,11 @@ const confirmGiftRedemptionUseCase = async (data) => {
         // moment. Now that the session holds its seats, count again: if it pushed the
         // slot over capacity (or an event took the slot ahead of it), this request
         // loses the race and gives everything back.
-        const { people: heldUpToThis, priorEvents } = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(bookingDate, slot.startTime, slot.endTime, sessionBooking._id);
+        const { people: heldUpToThis, priorBookings } = await (0, workshopRepo_1.getSeatsHeldUpToBookingRepo)(bookingDate, slot.startTime, slot.endTime, sessionBooking._id);
         const heldBeforeThis = heldUpToThis - booking.totalPeople;
-        if (priorEvents > 0 ||
+        if (priorBookings > 0 ||
             heldUpToThis > (0, slotCapacity_1.resolveSlotCapacity)(booking.bookingType, heldBeforeThis)) {
-            throw new appError_1.default('This slot is fully booked. Please choose another time.', httpStatus_1.HttpStatus.BAD_REQUEST);
+            throw new appError_1.default(slotCapacity_1.SLOT_UNAVAILABLE_REASON, httpStatus_1.HttpStatus.BAD_REQUEST);
         }
         await (0, workshopRepo_1.linkRedeemedGiftBookingRepo)(booking._id, sessionBooking._id);
     }

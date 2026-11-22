@@ -46,25 +46,27 @@ const seatHoldMatch = (now = new Date()) => ({
 });
 exports.seatHoldMatch = seatHoldMatch;
 /**
- * `$group` fields for counting seats: the people holding them, and how many of
- * those bookings are events (a birthday party or corporate event).
+ * `$group` fields for counting seats: the people holding them, and how many
+ * bookings hold them.
  */
 const seatTotalsGroup = {
     _id: null,
     totalPeople: { $sum: '$totalPeople' },
-    eventBookings: { $sum: { $cond: [{ $eq: ['$bookingType', 'events'] }, 1, 0] } },
+    bookingCount: { $sum: 1 },
 };
 /**
- * An events booking is a private group that takes the whole room, so while one
- * holds a slot nobody else can book it, however few guests it has. Reporting the
- * slot as full (the 25 an event may take) makes every capacity check that reads
- * this count refuse further bookings, with no change to those checks.
+ * One booking owns a time window. While any booking holds a slot — confirmed, or
+ * being paid for within its seat hold — nobody else can book it (or any slot
+ * overlapping it, in any workshop), whatever the booking's type and however few
+ * guests it has. Reporting the slot as full (the 25 an event may take) makes every
+ * capacity check that reads this count refuse further bookings, and the website's
+ * availability lookups show the slot as unavailable.
  */
-const countWithEventExclusivity = (totals) => {
+const countWithSlotLock = (totals) => {
     if (!totals)
         return 0;
     const people = totals.totalPeople ?? 0;
-    return totals.eventBookings > 0 ? Math.max(people, slotCapacity_1.EXCLUSIVE_EVENT_SLOT_CAPACITY) : people;
+    return totals.bookingCount > 0 ? Math.max(people, slotCapacity_1.EXCLUSIVE_EVENT_SLOT_CAPACITY) : people;
 };
 const getOverlappingSlotIds = async (range) => {
     const workshops = await workshopModel_1.default.find({
@@ -529,14 +531,14 @@ const fetchWorkshopAvailability = async (data) => {
         },
         { $group: seatTotalsGroup },
     ]);
-    const existingPeople = countWithEventExclusivity(aggregation[0]);
+    const existingPeople = countWithSlotLock(aggregation[0]);
     //  25 for an events booking holding the slot alone, otherwise the slot's
     //  ordinary capacity.
     const MAX_CAPACITY = (0, slotCapacity_1.resolveSlotCapacity)(bookingType, existingPeople, slot.capacity);
     const remainingCapacity = MAX_CAPACITY - existingPeople;
     //  Full
     if (remainingCapacity <= 0) {
-        return { available: false, reason: 'Slot fully booked' };
+        return { available: false, reason: slotCapacity_1.SLOT_UNAVAILABLE_REASON };
     }
     //  Minimum booking rule
     if (guests < MIN_BOOKING) {
@@ -734,7 +736,7 @@ const fetchPotteryWorkshopAvailability = async (data) => {
         },
         { $group: seatTotalsGroup },
     ]);
-    const bookedCount = countWithEventExclusivity(aggregation[0]);
+    const bookedCount = countWithSlotLock(aggregation[0]);
     // 25 for an events booking with the slot to itself, otherwise the ordinary
     // shared-studio capacity.
     const MAX_CAPACITY = (0, slotCapacity_1.resolveSlotCapacity)(bookingType, bookedCount, slot.capacity);
@@ -753,7 +755,7 @@ const fetchPotteryWorkshopAvailability = async (data) => {
     if (remainingCapacity <= 0) {
         return {
             available: false,
-            reason: 'Slot fully booked',
+            reason: slotCapacity_1.SLOT_UNAVAILABLE_REASON,
             totalCapacity: MAX_CAPACITY,
             bookedCount,
             remainingCapacity,
@@ -819,7 +821,7 @@ const getSlotBookedCount = async (bookingDate, startTime, endTime) => {
         },
         { $group: seatTotalsGroup },
     ]);
-    return countWithEventExclusivity(aggregation[0]);
+    return countWithSlotLock(aggregation[0]);
 };
 exports.getSlotBookedCount = getSlotBookedCount;
 const createWorkshopOrderRepo = async (data, session) => {
@@ -898,7 +900,8 @@ exports.discardPendingCheckoutRepo = discardPendingCheckoutRepo;
  * after a booking is written, it settles a race between two simultaneous
  * checkouts: bookings are ordered by _id, so exactly one of two competing
  * requests sees the overflow and backs out, never both and never neither.
- * `priorEvents` does the same for the rule that an event takes the whole slot.
+ * `priorBookings` does the same for the rule that one booking owns the slot: any
+ * other booking created ahead of this one means this one has lost it.
  */
 const getSeatsHeldUpToBookingRepo = async (bookingDate, startTime, endTime, upToBookingId) => {
     const matchingSlotIds = await getOverlappingSlotIds({ startTime, endTime });
@@ -916,23 +919,17 @@ const getSeatsHeldUpToBookingRepo = async (bookingDate, startTime, endTime, upTo
             $group: {
                 _id: null,
                 totalPeople: { $sum: '$totalPeople' },
-                // Events created before this booking. Not counting this booking itself
-                // (an event never conflicts with itself); another event ahead of it does.
-                priorEvents: {
-                    $sum: {
-                        $cond: [
-                            { $and: [{ $eq: ['$bookingType', 'events'] }, { $lt: ['$_id', upToBookingId] }] },
-                            1,
-                            0,
-                        ],
-                    },
+                // Bookings created before this one, of any type. Not counting this
+                // booking itself; any other booking ahead of it owns the slot.
+                priorBookings: {
+                    $sum: { $cond: [{ $lt: ['$_id', upToBookingId] }, 1, 0] },
                 },
             },
         },
     ]);
     return {
         people: aggregation.length > 0 ? aggregation[0].totalPeople : 0,
-        priorEvents: aggregation.length > 0 ? aggregation[0].priorEvents : 0,
+        priorBookings: aggregation.length > 0 ? aggregation[0].priorBookings : 0,
     };
 };
 exports.getSeatsHeldUpToBookingRepo = getSeatsHeldUpToBookingRepo;
@@ -1291,7 +1288,7 @@ const fetchPotteryWorkshopCapacity = async (data) => {
         },
         { $group: seatTotalsGroup },
     ]);
-    const bookedCount = countWithEventExclusivity(aggregation[0]);
+    const bookedCount = countWithSlotLock(aggregation[0]);
     // An events booking is allowed 25 only while it has the slot to itself; once
     // anything else is confirmed in an overlapping slot it drops to the ordinary
     // shared-studio capacity.

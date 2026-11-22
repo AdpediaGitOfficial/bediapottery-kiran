@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, isToday } from "date-fns";
 import { useFilteredTimeSlots } from "@/hooks/useFilteredTimeSlots";
+import { useUnavailableSlots } from "@/hooks/useUnavailableSlots";
 import DateSelector from "../product/DateSelector";
 import { WorkshopItem } from "@/services/workshop.service";
 import TimeSlotSelector from "../product/TimeSlotSelector";
@@ -78,6 +79,15 @@ const BirthdayHero: React.FC<BirthdayProps> = ({ product, type }) => {
 
   // Filter time slots for today based on UAE timezone using custom hook
   const availableSlots = useFilteredTimeSlots(selectedDate, product.defaultSlots);
+  // One booking owns a time window: slots someone else has taken are marked
+  // unavailable, and checked again while this page stays open.
+  const unavailableSlotIds = useUnavailableSlots(formattedDate, availableSlots, "events");
+  useEffect(() => {
+    if (selectedSlotId && unavailableSlotIds.includes(selectedSlotId)) {
+      setSelectedSlotId(null);
+      setAvailabilityError("That time slot was just taken. Please choose another.");
+    }
+  }, [unavailableSlotIds, selectedSlotId]);
 
   const quantityLimit = Math.min(
     maxQuantity,
@@ -391,6 +401,7 @@ const isBookingDisabled =
                   }))}
                   selectedSlotId={selectedSlotId}
                   onSlotSelect={handleSlotSelect}
+                  unavailableSlotIds={unavailableSlotIds}
                 />
                 {slotError && (
                   <p className="mt-3 text-sm text-red-600">{slotError}</p>
@@ -407,7 +418,7 @@ const isBookingDisabled =
                 {capacityInfo &&
                   (capacityInfo.remainingCapacity === 0 ? (
                     <p className="mt-3 text-sm text-red-600">
-                      Sorry, this time slot is fully booked. Please select
+                      Sorry, this time slot is unavailable. Please select
                       another time slot or date.
                     </p>
                   ) : (

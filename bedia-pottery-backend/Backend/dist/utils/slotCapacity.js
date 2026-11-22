@@ -40,4 +40,10 @@ exports.resolveSlotCapacity = resolveSlotCapacity;
  */
 const isEventBlockedByExistingBookings = (bookingType, bookedCount, guests) => (0, exports.isEventsBooking)(bookingType) && bookedCount > 0 && guests > exports.STANDARD_SLOT_CAPACITY;
 exports.isEventBlockedByExistingBookings = isEventBlockedByExistingBookings;
+/**
+ * One booking owns a time window: once any booking is confirmed (or being paid
+ * for, within its seat hold) for a date and slot, that slot — and every slot
+ * overlapping it, in any workshop — is unavailable to everyone else.
+ */
+exports.SLOT_UNAVAILABLE_REASON = 'This time slot is unavailable.';
 exports.EVENT_SLOT_NOT_EXCLUSIVE_REASON = `This slot already has another booking, so an event is limited to ${exports.STANDARD_SLOT_CAPACITY} guests. Bookings of up to ${exports.EXCLUSIVE_EVENT_SLOT_CAPACITY} need the slot to be free.`;

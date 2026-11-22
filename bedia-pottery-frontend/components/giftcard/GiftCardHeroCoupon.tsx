@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, ChangeEvent, useEffect } from "react";
 import { format } from "date-fns";
 import { useFilteredTimeSlots } from "@/hooks/useFilteredTimeSlots";
+import { useUnavailableSlots } from "@/hooks/useUnavailableSlots";
 import { useRouter } from "next/navigation";
 import DateSelector from "../product/DateSelector";
 import TimeSlotSelector from "../product/TimeSlotSelector";
@@ -208,6 +209,15 @@ const [capacityLoading, setCapacityLoading] = useState(false);
 
   // Filter time slots for today based on UAE timezone using custom hook
   const availableSlots = useFilteredTimeSlots(selectedDate, workshop.defaultSlots);
+  // One booking owns a time window: slots someone else has taken are marked
+  // unavailable, and checked again while this page stays open.
+  const unavailableSlotIds = useUnavailableSlots(formattedDate, availableSlots, "pottery");
+  useEffect(() => {
+    if (selectedSlotId && unavailableSlotIds.includes(selectedSlotId)) {
+      setSelectedSlotId(null);
+      setAvailabilityError("That time slot was just taken. Please choose another.");
+    }
+  }, [unavailableSlotIds, selectedSlotId]);
 
   const handleDateSelect = (date: Date) => {
     const isSameDate =
@@ -546,6 +556,7 @@ const [capacityLoading, setCapacityLoading] = useState(false);
                   }))}
                   selectedSlotId={selectedSlotId}
                   onSlotSelect={handleSlotSelect}
+                  unavailableSlotIds={unavailableSlotIds}
                 />
                 {slotError && (
                   <p className="mt-3 text-sm text-red-600">{slotError}</p>
@@ -562,7 +573,7 @@ const [capacityLoading, setCapacityLoading] = useState(false);
                 {capacityInfo &&
                   (capacityInfo.remainingCapacity === 0 ? (
                     <p className="mt-3 text-sm text-red-600">
-                      Sorry, this time slot is fully booked. Please select
+                      Sorry, this time slot is unavailable. Please select
                       another time slot or date.
                     </p>
                   ) : (

@@ -13,6 +13,8 @@ interface TimeSlotSelectorProps {
   selectedSlotId: string | null
   onSlotSelect: (slotId: string) => void
   className?: string
+  /** Slots someone else has already taken; shown greyed out and not selectable. */
+  unavailableSlotIds?: string[]
 }
 
 const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
@@ -20,6 +22,7 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
   selectedSlotId,
   onSlotSelect,
   className = '',
+  unavailableSlotIds = [],
 }) => {
   if (slots.length === 0) {
     return null
@@ -32,17 +35,20 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
         {slots.map((slot) => (
           <button
             key={slot._id}
-            onClick={() => slot.capacity && onSlotSelect(slot._id)}
-            disabled={!slot.capacity}
+            onClick={() => slot.capacity && !unavailableSlotIds.includes(slot._id) && onSlotSelect(slot._id)}
+            disabled={!slot.capacity || unavailableSlotIds.includes(slot._id)}
             className={`px-1 py-3  font-medium transition-colors duration-200 ${
-              selectedSlotId === slot._id
+              selectedSlotId === slot._id && !unavailableSlotIds.includes(slot._id)
                 ? 'bg-primary text-white border border-primary'
-                : slot.capacity
+                : slot.capacity && !unavailableSlotIds.includes(slot._id)
                 ? 'bg-white text-gray-700 border border-gray-300 hover:border-primary'
                 : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
             }`}
           >
             {slot.startTime} - {slot.endTime}
+            {unavailableSlotIds.includes(slot._id) && (
+              <span className="block text-xs font-normal">Unavailable</span>
+            )}
           </button>
         ))}
       </div>

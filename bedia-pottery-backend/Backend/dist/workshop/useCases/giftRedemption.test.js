@@ -14,7 +14,7 @@ const mockStore = {
     bookings: [],
     workshop: null,
     heldBeforeSession: 0,
-    priorEvents: 0,
+    priorBookings: 0,
     nextId: 1,
 };
 const mockId = () => `6a8d7768722703150000${String(mockStore.nextId++).padStart(4, '0')}`;
@@ -57,7 +57,7 @@ jest.mock('../repos/workshopRepo', () => ({
         const own = mockStore.bookings.find((b) => b._id === id);
         return {
             people: mockStore.heldBeforeSession + own.totalPeople,
-            priorEvents: mockStore.priorEvents,
+            priorBookings: mockStore.priorBookings,
         };
     }),
     linkRedeemedGiftBookingRepo: jest.fn(async (purchaseId, sessionId) => {
@@ -68,6 +68,7 @@ jest.mock('../repos/workshopRepo', () => ({
     }),
 }));
 const workshopUseCase_1 = require("./workshopUseCase");
+const { SLOT_UNAVAILABLE_REASON } = require("../../utils/slotCapacity");
 const workshopRepo_1 = require("../repos/workshopRepo");
 const mail = require("../../services/workshopBookingMailService");
 const PURCHASE_ID = '6a8d776872270315b88c5f01';
@@ -134,7 +135,7 @@ beforeEach(() => {
     mockStore.bookings = [makePurchase()];
     mockStore.workshop = { _id: WORKSHOP_ID, title: 'Pottery Wheel Workshop', defaultSlots: [slot] };
     mockStore.heldBeforeSession = 0;
-    mockStore.priorEvents = 0;
+    mockStore.priorBookings = 0;
     mockStore.nextId = 1;
     process.env.CC_EMAIL = 'studio@example.com';
 });
@@ -271,12 +272,13 @@ describe('a voucher can be redeemed once', () => {
     });
 });
 describe('when the session cannot be kept', () => {
-    it('gives the voucher back when the slot filled up at the same moment', async () => {
-        // The first count looks free; once the session exists, 11 seats are already held.
+    it('gives the voucher back when someone else took the slot at the same moment', async () => {
+        // The first count looks free; once the session exists, another booking is ahead of it.
         workshopRepo_1.getSlotBookedCount.mockResolvedValueOnce(0);
-        mockStore.heldBeforeSession = 11;
+        mockStore.heldBeforeSession = 2;
+        mockStore.priorBookings = 1;
         await expect((0, workshopUseCase_1.confirmGiftRedemptionUseCase)(request())).rejects.toMatchObject({
-            message: expect.stringContaining('fully booked'),
+            message: SLOT_UNAVAILABLE_REASON,
         });
         expect(sessions()).toHaveLength(0);
         expect(purchase().giftStatus).toBe('completed');
@@ -284,18 +286,21 @@ describe('when the session cannot be kept', () => {
         expect(mail.sendWorkshopBookingConfirmationMail).not.toHaveBeenCalled();
         // The recipient can try again with another slot.
         mockStore.heldBeforeSession = 0;
+        mockStore.priorBookings = 0;
         await expect((0, workshopUseCase_1.confirmGiftRedemptionUseCase)(request())).resolves.toHaveProperty('bookingNumber');
     });
-    it('gives the voucher back when an event took the slot ahead of it', async () => {
+    it('gives the voucher back when a booking of any kind took the slot ahead of it', async () => {
         workshopRepo_1.getSlotBookedCount.mockResolvedValueOnce(0);
-        mockStore.priorEvents = 1;
+        mockStore.priorBookings = 1;
         await expect((0, workshopUseCase_1.confirmGiftRedemptionUseCase)(request())).rejects.toBeTruthy();
         expect(sessions()).toHaveLength(0);
         expect(purchase().giftStatus).toBe('completed');
     });
-    it('refuses a slot that is already full without touching the voucher', async () => {
-        mockStore.heldBeforeSession = 11;
-        await expect((0, workshopUseCase_1.confirmGiftRedemptionUseCase)(request())).rejects.toBeTruthy();
+    it('refuses a slot that already has a booking without touching the voucher', async () => {
+        mockStore.heldBeforeSession = 2;
+        await expect((0, workshopUseCase_1.confirmGiftRedemptionUseCase)(request())).rejects.toMatchObject({
+            message: SLOT_UNAVAILABLE_REASON,
+        });
         expect(workshopRepo_1.claimGiftVoucherRepo).not.toHaveBeenCalled();
         expect(purchase().giftStatus).toBe('completed');
     });

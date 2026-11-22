@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { format, isToday } from "date-fns";
 import { useFilteredTimeSlots } from "@/hooks/useFilteredTimeSlots";
+import { useUnavailableSlots } from "@/hooks/useUnavailableSlots";
 import { Availability } from "@/types";
 import { WorkshopItem } from "@/services/workshop.service";
 import ProductMedia from "./ProductMedia";
@@ -114,6 +115,15 @@ const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
 
   // Filter time slots for today based on UAE timezone using custom hook
   const availableSlots = useFilteredTimeSlots(selectedDate, product.defaultSlots);
+  // One booking owns a time window: slots someone else has taken are marked
+  // unavailable, and checked again while this page stays open.
+  const unavailableSlotIds = useUnavailableSlots(formattedDate, availableSlots, category === "corporate-events" ? "events" : undefined);
+  useEffect(() => {
+    if (selectedSlotId && unavailableSlotIds.includes(selectedSlotId)) {
+      setSelectedSlotId(null);
+      setAvailabilityError("That time slot was just taken. Please choose another.");
+    }
+  }, [unavailableSlotIds, selectedSlotId]);
 
   const handleDateSelect = (date: Date) => {
     const isSameDate =
@@ -426,6 +436,7 @@ const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
                 }))}
                 selectedSlotId={selectedSlotId}
                 onSlotSelect={handleSlotSelect}
+                unavailableSlotIds={unavailableSlotIds}
               />
               {slotError && (
                 <p className="mt-3 text-sm text-red-600">{slotError}</p>
@@ -445,7 +456,7 @@ const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
               {capacityInfo &&
                 (capacityInfo.remainingCapacity === 0 ? (
                   <p className="mt-3 text-sm text-red-600">
-                    Sorry, this time slot is fully booked. Please select another
+                    Sorry, this time slot is unavailable. Please select another
                     time slot or date.
                   </p>
                 ) : (
