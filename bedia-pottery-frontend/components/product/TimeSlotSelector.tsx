@@ -47,7 +47,7 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
           >
             {slot.startTime} - {slot.endTime}
             {unavailableSlotIds.includes(slot._id) && (
-              <span className="block text-xs font-normal">Unavailable</span>
+              <span className="block text-xs font-normal">FULLY BOOKED</span>
             )}
           </button>
         ))}
