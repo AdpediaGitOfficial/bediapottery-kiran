@@ -20,6 +20,12 @@ interface ProductMediaProps {
   images?: ImagesItem[]
   alt: string
   className?: string
+  /**
+   * Size classes for the large picture. The default is a fixed height, which crops
+   * the sides of a wide picture on a phone. A page showing a wide picture (the gift
+   * voucher) passes a shape that matches it, so nothing is cut off.
+   */
+  mainImageFrameClassName?: string
 }
 
 const ProductMedia: React.FC<ProductMediaProps> = ({
@@ -28,6 +34,7 @@ const ProductMedia: React.FC<ProductMediaProps> = ({
   images = [],
   alt,
   className = '',
+  mainImageFrameClassName = 'h-[360px] sm:h-[520px] lg:h-full',
 }) => {
   const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null)
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(null)
@@ -72,7 +79,7 @@ const thumbnails = useMemo(() => {
     <div className={`grid grid-cols-1 gap-2 ${className} lg:h-full lg:min-h-[680px] lg:grid-rows-[calc(65%_-_10px)_35%]`}>
       
       {/* Main Feature Window - fixed mobile height, full height on desktop */}
-      <div className="relative w-full h-[360px] sm:h-[520px] lg:h-full overflow-hidden bg-black">
+      <div className={`relative w-full ${mainImageFrameClassName} overflow-hidden bg-black`}>
         <Image
           src={imageUrl || '/images/product/1.png'}
           alt={alt}

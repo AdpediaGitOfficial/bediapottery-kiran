@@ -157,7 +157,8 @@ export default function GiftCardHero({ product }: GiftCardHeroProps) {
             </p>
           </div>
         <ProductMedia
-          imageUrl={product?.bannerImage || "/images/product/1.png"}
+          imageUrl={product?.bannerImage || "/images/gift/gift-voucher.jpg"}
+          mainImageFrameClassName="aspect-[1602/1138] lg:aspect-auto lg:h-full"
           alt={product?.title}
           images={product?.images}
           videos={

@@ -397,7 +397,8 @@ const [capacityLoading, setCapacityLoading] = useState(false);
           </div>
 
           <ProductMedia
-            imageUrl="/images/gift/banner.png"
+            imageUrl="/images/gift/gift-voucher.jpg"
+            mainImageFrameClassName="aspect-[1602/1138] lg:aspect-auto lg:h-full"
             alt={workshop?.title || "Gift card workshop"}
             images={workshop?.images || staticWorkshopMedia.images}
             videos={
