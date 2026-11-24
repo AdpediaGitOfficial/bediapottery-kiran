@@ -139,9 +139,10 @@ exports.createWorkshopBooking = (0, express_async_handler_1.default)(async (req,
         checkoutUrl: result.checkoutUrl,
     });
 });
-// Generates the voucher PDF, persists the gift status, and emails the voucher
-// for a single gift booking. Pulled out so multiple gift bookings can be
-// processed concurrently from the webhook.
+// Generates the voucher PDF and persists the gift status for a single gift
+// booking, and hands the voucher back. Pulled out so multiple gift bookings can
+// be processed concurrently from the webhook; the purchaser gets ONE email
+// carrying every voucher of the order (see sendGiftVoucherEmails).
 /**
  * Whether a gift was bought for kids or adults, read from the booked items (the
  * gift card page sends the guest count as `child` or `adult`). Empty when unknown.
@@ -161,17 +162,19 @@ const processGiftBooking = async (giftBooking) => {
     const guests = String(giftBooking.totalPeople);
     // const voucherCode = `BP${Date.now()}`;
     const voucherCode = `BP${(0, crypto_1.randomBytes)(4).toString('hex').toUpperCase()}`;
+    const audience = giftBooking.giftDetails?.giftFor || giftAudience(giftBooking.items);
+    const redeemUrl = `${process.env.FRONTEND_URL}/redeem?ref=${giftBooking._id}`;
     const voucher = await (0, generateGiftVoucher_1.generateGiftVoucher)({
         personalMessage: giftBooking.giftDetails?.personalMessage || '',
         guests,
         giftFor: giftBooking.giftDetails?.giftFor || '',
         // Used by the newer voucher artwork, which says who the voucher is for
         // ("1 Kids' Pottery Experience") and prints the validity date its own way.
-        audience: giftBooking.giftDetails?.giftFor || giftAudience(giftBooking.items),
+        audience,
         validUntil: giftBooking.giftValidity,
         voucherCode,
         clayType,
-        redeemUrl: `${process.env.FRONTEND_URL}/redeem?ref=${giftBooking._id}`,
+        redeemUrl,
         giftValidity: giftBooking.giftValidity
             ? new Date(giftBooking.giftValidity).toLocaleDateString('en-US', {
                 month: 'long',
@@ -188,11 +191,35 @@ const processGiftBooking = async (giftBooking) => {
     giftBooking.giftDetails.voucherPdf = voucher.fileName;
     giftBooking.giftDetails.sentAt = new Date();
     await giftBooking.save();
-    await (0, workshopBookingMailService_1.sendGiftVoucherMail)({
+    return {
         booking: giftBooking,
         voucherPath: voucher.outputPath,
         voucherCode,
+        audience,
+        clayType,
+        validUntil: giftBooking.giftValidity,
+        redeemUrl,
+    };
+};
+/**
+ * Makes the voucher for every gift booking of an order and sends the purchaser a
+ * single email with all of them attached. One failing voucher is logged and
+ * left out; the others are still sent.
+ */
+const sendGiftVoucherEmails = async (giftBookings) => {
+    if (!giftBookings.length)
+        return;
+    const results = await Promise.allSettled(giftBookings.map((giftBooking) => processGiftBooking(giftBooking)));
+    const vouchers = [];
+    results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+            vouchers.push(result.value);
+        }
+        else {
+            console.error('Gift voucher could not be made for booking', String(giftBookings[index]._id), result.reason);
+        }
     });
+    await (0, workshopBookingMailService_1.sendGiftVouchersMail)({ vouchers });
 };
 const stripeWebhookController = async (req, res) => {
     console.log('WEBHOOK HIT');
@@ -294,8 +321,10 @@ const stripeWebhookController = async (req, res) => {
                 }
                 console.log('SLOT TIMES UPDATED');
             }
-            const primaryBooking = bookings[0];
-            const bookingType = primaryBooking?.bookingType;
+            // Sessions (workshops, events, private) are confirmed by the booking
+            // confirmation email; gift vouchers have their own email below.
+            const sessionDetails = bookingDetails.filter(({ booking }) => booking.bookingType !== 'gift');
+            const bookingType = sessionDetails[0]?.booking?.bookingType;
             // Generate a voucher and send the gift email for EVERY gift booking in the
             // order. With cart checkout, gift bookings can appear anywhere among the
             // order's bookings (not just the first one). The gift card email goes to
@@ -309,10 +338,12 @@ const stripeWebhookController = async (req, res) => {
             postPaymentWorkStarted = true;
             try {
                 await Promise.all([
-                    bookingType === 'gift' || bookingType === 'pottery' || bookingType === 'events'
-                        ? (0, workshopBookingMailService_1.sendWorkshopBookingConfirmationMail)({ order: orderData, bookingsData: bookingDetails })
-                        : (0, workshopBookingMailService_1.sendPriveBookingConfirmationMail)({ order: orderData, bookingsData: bookingDetails }),
-                    ...giftBookings.map((giftBooking) => processGiftBooking(giftBooking)),
+                    sessionDetails.length === 0
+                        ? undefined
+                        : bookingType === 'pottery' || bookingType === 'events'
+                            ? (0, workshopBookingMailService_1.sendWorkshopBookingConfirmationMail)({ order: orderData, bookingsData: sessionDetails })
+                            : (0, workshopBookingMailService_1.sendPriveBookingConfirmationMail)({ order: orderData, bookingsData: sessionDetails }),
+                    sendGiftVoucherEmails(giftBookings),
                 ]);
             }
             catch (mailError) {

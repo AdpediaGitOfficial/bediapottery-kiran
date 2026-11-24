@@ -205,6 +205,8 @@ describe('redeeming a gift voucher makes a second booking', () => {
         expect(call.bookingsData[0].booking._id).toBe(sessions()[0]._id);
         expect(call.order.orderNumber).toBe(sessions()[0].bookingNumber);
         expect(call.order.grandTotal).toBe(493.5);
+        // The confirmation shows which voucher paid for the session.
+        expect(call.voucherCode).toBe(CODE);
     });
 });
 describe('the booking it creates', () => {

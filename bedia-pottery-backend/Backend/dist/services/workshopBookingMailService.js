@@ -1,8 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendGiftVoucherMail = exports.sendPriveBookingConfirmationMail = exports.sendWorkshopBookingConfirmationMail = void 0;
+exports.sendGiftVouchersMail = exports.sendGiftVoucherMail = exports.sendPriveBookingConfirmationMail = exports.sendWorkshopBookingConfirmationMail = void 0;
 const mailService_1 = require("./mailService");
-const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc }) => {
+const generateGiftVoucher_1 = require("../utils/generateGiftVoucher");
+const deriveClayType_1 = require("../utils/deriveClayType");
+const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc, voucherCode }) => {
     try {
         console.log('WORKSHOP EMAIL FUNCTION STARTED');
         console.log('ORDER:', order?._id);
@@ -226,9 +233,13 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
                   <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">Email</td>
                   <td align="left" class="row-value text-strong" style="word-break:break-all;padding:3px 0;color:#000000;font-weight:500;vertical-align:top;">${customer.email}</td>
                 </tr>
+                ${voucherCode ? `<tr>
+                  <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">Voucher Code</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${escapeHtml(voucherCode)}</td>
+                </tr>` : ''}
                 <tr>
-                  <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">Amount Paid</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${order.grandTotal} AED</td>
+                  <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">${voucherCode ? 'Payment' : 'Amount Paid'}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${voucherCode ? 'Paid by gift voucher' : `${order.grandTotal} AED`}</td>
                 </tr>
               </table>
             </td>
@@ -764,15 +775,65 @@ const sendPriveBookingConfirmationMail = async ({ order, bookingsData }) => {
     }
 };
 exports.sendPriveBookingConfirmationMail = sendPriveBookingConfirmationMail;
-const sendGiftVoucherMail = async ({ booking, voucherPath }) => {
+/**
+ * One purchase email for every gift voucher bought in the same order: a block
+ * per voucher (code, who it is for, validity, redeem link) and every voucher PDF
+ * attached to the same message. `vouchers` is a list of
+ * `{ booking, voucherPath, voucherCode, audience?, clayType?, validUntil?, redeemUrl? }`.
+ */
+const sendGiftVouchersMail = async ({ vouchers }) => {
     try {
+        const list = (vouchers || []).filter((v) => v?.booking && v?.voucherPath);
+        if (list.length === 0) {
+            console.log('NO GIFT VOUCHERS TO EMAIL, SKIPPING');
+            return;
+        }
         // The gift card email goes to the purchaser only; the recipient gets the
         // voucher when the purchaser hands over the attached PDF.
-        const recipientEmail = booking.customer?.email;
+        const recipientEmail = list[0].booking.customer?.email;
         if (!recipientEmail) {
             console.log('PURCHASER EMAIL NOT FOUND, SKIPPING');
             return;
         }
+        const many = list.length > 1;
+        const detailRow = (label, value) => `
+                <tr>
+                  <td width="42%" class="row-label text-muted" style="padding:3px 12px 3px 0;color:#4b5563;font-size:13px;vertical-align:top;">${label}</td>
+                  <td class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-size:13px;font-weight:500;vertical-align:top;">${value}</td>
+                </tr>`;
+        const voucherBlocks = list
+            .map(({ booking, voucherCode, audience, clayType, validUntil, redeemUrl }, index) => {
+            const gift = booking.giftDetails || {};
+            const code = voucherCode || gift.voucherCode || '';
+            const who = audience || gift.giftFor || '';
+            const includes = generateGiftVoucher_1.describeIncludes(booking.totalPeople, who);
+            const clay = clayType || deriveClayType_1.deriveClayType(booking.items?.[0]?.optionTitle);
+            const until = generateGiftVoucher_1.formatValidUntil(validUntil || booking.giftValidity, '');
+            const link = redeemUrl || `${process.env.FRONTEND_URL}/redeem?ref=${booking._id}`;
+            return `
+          <tr>
+            <td class="px" style="padding:0 30px 12px 30px;">
+              <table role="presentation" class="voucher-box" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e5e7eb;">
+                <tr>
+                  <td style="padding:12px 14px;">
+                    ${many ? `<p class="text-strong" style="margin:0 0 6px 0;font-size:13px;font-weight:700;color:#000000;text-transform:uppercase;letter-spacing:0.5px;">Gift voucher ${index + 1} of ${list.length}</p>` : ''}
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      ${detailRow('Includes', escapeHtml(includes))}
+                      ${clay ? detailRow('Clay type', escapeHtml(clay)) : ''}
+                      ${until ? detailRow('Valid until', escapeHtml(until)) : ''}
+                      ${gift.recipientName ? detailRow('For', escapeHtml(gift.recipientName)) : ''}
+                      ${detailRow('Voucher code', `<span class="voucher-code" style="font-size:16px;font-weight:700;letter-spacing:1px;color:#0d463d;">${escapeHtml(code)}</span>`)}
+                    </table>
+                    <p style="margin:10px 0 0 0;font-size:13px;">
+                      <a href="${escapeHtml(link)}" class="text-strong" style="color:#0d463d;font-weight:700;text-decoration:underline;">Redeem this voucher</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>`;
+        })
+            .join('');
         const logoUrl = `${process.env.BASE_URL}/uploads/logo/logo.png`;
         const logoIconUrl = `${process.env.BASE_URL}/uploads/logo/pottery_logo_icon.svg?v=4`;
         const instagramIcon = `${process.env.BASE_URL}/uploads/logo/instagram.svg?v=5`;
@@ -883,10 +944,11 @@ const sendGiftVoucherMail = async ({ booking, voucherPath }) => {
           <tr>
             <td class="px" style="padding:0 30px 12px 30px;">
               <p class="text-strong" style="margin:0;font-size:14px;color:#000000;line-height:1.6;">
-                Please find the attached gift card. We&rsquo;re excited to welcome your loved ones to our studio and promise to offer them the best service and a memorable experience.
+                ${many ? `Please find your ${list.length} gift cards attached, one PDF for each.` : 'Please find the attached gift card.'} We&rsquo;re excited to welcome your loved ones to our studio and promise to offer them the best service and a memorable experience.
               </p>
             </td>
           </tr>
+          ${voucherBlocks}
           <tr>
             <td class="px" style="padding:0 30px 12px 30px;">
               <p class="text-strong" style="margin:0;font-size:14px;color:#000000;line-height:1.6;">
@@ -984,11 +1046,17 @@ const sendGiftVoucherMail = async ({ booking, voucherPath }) => {
   </table>
 </body>
 </html>`;
-        await (0, mailService_1.sendEmail)(recipientEmail, 'Your Bedia Pottery Gift Card', 'Gift Card Purchase Confirmation', html, [{ filename: 'gift-voucher.pdf', path: voucherPath }], [process.env.CC_EMAIL], { fromName: mailService_1.POTTERY_MAIL_NAME });
+        await (0, mailService_1.sendEmail)(recipientEmail, many ? 'Your Bedia Pottery Gift Cards' : 'Your Bedia Pottery Gift Card', 'Gift Card Purchase Confirmation', html, list.map((v, index) => ({
+            filename: many ? `gift-voucher-${index + 1}.pdf` : 'gift-voucher.pdf',
+            path: v.voucherPath,
+        })), [process.env.CC_EMAIL], { fromName: mailService_1.POTTERY_MAIL_NAME });
     }
     catch (error) {
         console.error('GIFT VOUCHER EMAIL SEND FAILED:', error?.message);
         console.error(error);
     }
 };
+exports.sendGiftVouchersMail = sendGiftVouchersMail;
+/** A single voucher, kept for callers that have only one. */
+const sendGiftVoucherMail = async ({ booking, voucherPath, voucherCode }) => sendGiftVouchersMail({ vouchers: [{ booking, voucherPath, voucherCode }] });
 exports.sendGiftVoucherMail = sendGiftVoucherMail;

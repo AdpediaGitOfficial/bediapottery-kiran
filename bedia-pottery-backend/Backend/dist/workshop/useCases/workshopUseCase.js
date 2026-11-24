@@ -1764,6 +1764,9 @@ const confirmGiftRedemptionUseCase = async (data) => {
             ],
             to: toEmail,
             cc: ccList,
+            // Shown on the confirmation, and in place of a price: the session was
+            // paid for when the voucher was bought.
+            voucherCode: booking.giftDetails?.voucherCode || voucherCode,
         });
     }
     return {
