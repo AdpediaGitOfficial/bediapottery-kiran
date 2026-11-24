@@ -131,6 +131,11 @@ export default function GiftCardHero({ product }: GiftCardHeroProps) {
         bookingService,
       );
       setCartToastKey((count) => count + 1);
+      // The message belongs to the item just added (it is saved with it in the
+      // cart). Start the next voucher with an empty box, so it can't be sent to
+      // someone else by mistake. The other choices stay for a second, similar gift.
+      setMessage("");
+      setQuantity(1);
       return true;
     } catch (error) {
       setAvailabilityError(
