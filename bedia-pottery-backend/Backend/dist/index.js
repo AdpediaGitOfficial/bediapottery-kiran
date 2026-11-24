@@ -38,9 +38,12 @@ const dashboardRoute_1 = __importDefault(require("./dashboard/routes/dashboardRo
 const studioRoute_1 = __importDefault(require("./studio/routes/studioRoute"));
 const workshopController_1 = require("./workshop/controllers/workshopController");
 const potteryTrackingJob_1 = require("./workshop/jobs/potteryTrackingJob");
+const uploadedFiles_1 = require("./utils/uploadedFiles");
 const app = (0, express_1.default)();
 (0, connectToDatabase_1.default)();
 app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, './uploads')));
+// Files uploaded from the dashboard are saved by multer in ../uploads, outside dist.
+app.use('/uploads', (0, uploadedFiles_1.serveUploadedFiles)(path_1.default.join(__dirname, '../uploads')));
 const corsOptions = {
     origin: JSON.parse(configKeys_1.default.CORS_URLS),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'],
