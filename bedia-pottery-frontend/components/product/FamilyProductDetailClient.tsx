@@ -50,7 +50,8 @@ const FamilyProductDetailClient: React.FC<ProductDetailClientProps> = ({
   // Control visibility of mobile floating bar
   const [isClayPassed, setIsClayPassed] = useState(false)
   const [isQuantityReached, setIsQuantityReached] = useState(false)
-  const [showCartToast, setShowCartToast] = useState(false)
+  // Counts the adds, so each one shows the message again with a fresh timer.
+  const [cartToastKey, setCartToastKey] = useState(0)
 
   const claySectionRef = useRef<HTMLDivElement>(null)
   const quantitySectionRef = useRef<HTMLDivElement>(null)
@@ -234,9 +235,7 @@ const FamilyProductDetailClient: React.FC<ProductDetailClientProps> = ({
   const handleAddToCart = async () => {
     const success = await handlecheck('cart')
     if (success) {
-      setShowCartToast(true)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      setTimeout(() => setShowCartToast(false), 5000)
+      setCartToastKey((count) => count + 1)
     }
   }
 
@@ -332,7 +331,7 @@ const FamilyProductDetailClient: React.FC<ProductDetailClientProps> = ({
 
   return (
     <div className="page-wrapper relative">
-      {showCartToast && <CartToast />}
+      {cartToastKey > 0 && <CartToast key={cartToastKey} onClose={() => setCartToastKey(0)} />}
       <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-8 gap-0 lg:pb-4">
         {/* Left Section - Media */}
         <div className="md:hidden block p-3 mt-8">

@@ -40,7 +40,8 @@ export default function GiftCardHero({ product }: GiftCardHeroProps) {
   const [recipient, setRecipient] = useState("Adults");
   const [message, setMessage] = useState("");
   const [availabilityError, setAvailabilityError] = useState("");
-  const [showCartToast, setShowCartToast] = useState(false);
+  // Counts the adds, so each one shows the message again with a fresh timer.
+  const [cartToastKey, setCartToastKey] = useState(0);
   const [isQuantityReached, setIsQuantityReached] = useState(false);
   const quantitySectionRef = useRef<HTMLDivElement>(null);
 
@@ -129,9 +130,7 @@ export default function GiftCardHero({ product }: GiftCardHeroProps) {
         },
         bookingService,
       );
-      setShowCartToast(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      setTimeout(() => setShowCartToast(false), 5000);
+      setCartToastKey((count) => count + 1);
       return true;
     } catch (error) {
       setAvailabilityError(
@@ -144,9 +143,9 @@ export default function GiftCardHero({ product }: GiftCardHeroProps) {
 
   return (
     <section className="page-wrapper ">
-      {showCartToast && (
-        <CartToast />
-       )}
+      {cartToastKey > 0 && (
+        <CartToast key={cartToastKey} onClose={() => setCartToastKey(0)} />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-8 gap-4 -ml-">
         {/* Left Section - Media */}

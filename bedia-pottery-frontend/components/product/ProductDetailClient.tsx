@@ -64,7 +64,8 @@ const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
   const [capacityError, setCapacityError] = useState<string>("");
   const [isMaterialPassed, setIsMaterialPassed] = useState(false);
   const [isQuantityReached, setIsQuantityReached] = useState(false);
-  const [showCartToast, setShowCartToast] = useState(false);
+  // Counts the adds, so each one shows the message again with a fresh timer.
+  const [cartToastKey, setCartToastKey] = useState(0);
   const materialSectionRef = useRef<HTMLDivElement>(null);
   const quantitySectionRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -221,9 +222,7 @@ const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
   }) => {
     const success = await handlecheck("cart", overrideCounts);
     if (success) {
-      setShowCartToast(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      setTimeout(() => setShowCartToast(false), 5000);
+      setCartToastKey((count) => count + 1);
     }
   };
 
@@ -334,7 +333,7 @@ const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
 
   return (
     <section className="bg-secondary-dark min-h-screen lg:py-12 pt-8 pb-0 font-sans text-[#0D463D]">
-      {showCartToast && <CartToast />}
+      {cartToastKey > 0 && <CartToast key={cartToastKey} onClose={() => setCartToastKey(0)} />}
       <div className="page-wrapper px-[17px] grid grid-cols-1 lg:grid-cols-2 lg:gap-8  items-stretch">
         <div className="flex flex-col gap-4 h-full">
            <div className="flex flex-col h-full  lg:p-8 lg:pb-0 space-y-6 lg:hidden p-3">
