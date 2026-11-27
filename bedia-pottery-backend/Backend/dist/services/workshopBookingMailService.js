@@ -9,6 +9,63 @@ const escapeHtml = (value) => String(value ?? '')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+const formatMoney = (amount, currency) => `${Number(amount || 0).toFixed(2)} ${currency || 'AED'}`;
+/** "24 November 2026", in UAE time. */
+const formatPaymentDate = (value) => {
+    const parsed = value ? new Date(value) : new Date();
+    const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    return date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'Asia/Dubai',
+    });
+};
+/**
+ * The payment part of a booking confirmation: what was paid for, the VAT, the
+ * total, when it was paid and the payment reference. `row(label, value, strong)`
+ * draws one line in the style of the email it goes into.
+ *
+ * Returns '' when the order has no breakdown to show (callers then keep their
+ * single amount line). Gift vouchers bought in the same order are not listed
+ * here — they have their own email and their own details — but their amount is
+ * still part of the total, so it is shown as one line to make the lines add up.
+ */
+const buildPaymentRows = ({ order, bookingsData, row }) => {
+    if (!order || typeof order.subtotal !== 'number' || typeof order.grandTotal !== 'number') {
+        return '';
+    }
+    const currency = order.currency;
+    const several = bookingsData.length > 1;
+    const lines = [];
+    let sessionsSubtotal = 0;
+    for (const { booking, workshop } of bookingsData) {
+        sessionsSubtotal += Number(booking?.totalAmount) || 0;
+        for (const item of booking?.items || []) {
+            if (typeof item.subtotal !== 'number')
+                continue;
+            const guests = `${item.people} ${item.people === 1 ? 'guest' : 'guests'}`;
+            const title = escapeHtml(item.optionTitle || 'Booking');
+            const label = several && workshop?.title ? `${escapeHtml(workshop.title)}: ${title} (${guests})` : `${title} (${guests})`;
+            lines.push(row(label, formatMoney(item.subtotal, currency)));
+        }
+    }
+    const otherSubtotal = order.subtotal - sessionsSubtotal;
+    if (otherSubtotal > 0.005) {
+        lines.push(row('Gift vouchers (sent in a separate email)', formatMoney(otherSubtotal, currency)));
+    }
+    lines.push(row('Subtotal', formatMoney(order.subtotal, currency)));
+    if (Number(order.taxAmount) > 0) {
+        const percent = Number(order.taxPercent) > 0 ? ` (${Number(order.taxPercent)}%)` : '';
+        lines.push(row(`VAT${percent}`, formatMoney(order.taxAmount, currency)));
+    }
+    lines.push(row('Total paid', formatMoney(order.grandTotal, currency), true));
+    lines.push(row('Payment date', formatPaymentDate(order.updatedAt)));
+    if (order.paymentId) {
+        lines.push(row('Payment reference', escapeHtml(order.paymentId)));
+    }
+    return lines.join('');
+};
 const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc, voucherCode }) => {
     try {
         console.log('WORKSHOP EMAIL FUNCTION STARTED');
@@ -38,12 +95,43 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
         const tiktokIconDark = `${process.env.BASE_URL}/uploads/logo/tiktok-dark.svg?v=2`;
         const youtubeIconDark = `${process.env.BASE_URL}/uploads/logo/youtube-dark.svg?v=3`;
         const logoDarkUrl = `${process.env.BASE_URL}/uploads/logo/bediapottery-logo-dark.svg?v=6`;
+        const paymentRow = (label, value, strong) => `
+                <tr>
+                  <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">${label}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:${strong ? 700 : 500};vertical-align:top;">${value}</td>
+                </tr>`;
+        // A redemption is paid for by the voucher, so it shows no amounts at all.
+        const paymentRows = voucherCode ? '' : buildPaymentRows({ order, bookingsData, row: paymentRow });
+        const paymentSection = paymentRows
+            ? `
+          <!-- Payment -->
+          <tr>
+            <td style="padding:6px 0 0 0;">
+              <div class="hr" style="border-top:1px solid #e5e7eb;font-size:1px;line-height:1px;height:1px;">&nbsp;</div>
+            </td>
+          </tr>
+          <tr>
+            <td class="px" style="padding:10px 30px 8px 30px;">
+              <p class="text-strong" style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:0.5px;">Payment</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.4;">
+                ${paymentRows}
+              </table>
+            </td>
+          </tr>`
+            : '';
+        // Without a breakdown the customer details keep their single amount line.
+        const amountRow = paymentRows
+            ? ''
+            : `<tr>
+                  <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">${voucherCode ? 'Payment' : 'Amount Paid'}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${voucherCode ? 'Paid by gift voucher' : `${order.grandTotal} AED`}</td>
+                </tr>`;
         const workshopSections = bookingsData
             .map(({ booking, workshop, slot }) => {
             const itemRows = booking.items
                 ?.map((item) => `
               <tr>
-                <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;font-size:14px;vertical-align:top;">${item.optionTitle}</td>
+                <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;font-size:14px;vertical-align:top;">${escapeHtml(item.optionTitle)}</td>
                 <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;font-size:14px;vertical-align:top;">${item.people} ${item.people === 1 ? 'Guest' : 'Guests'}</td>
               </tr>`)
                 .join('') || '';
@@ -93,7 +181,7 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
           <!-- Workshop block -->
           <tr>
             <td class="px" style="padding:10px 30px 8px 30px;">
-              <p class="text-strong" style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:0.5px;">${workshop?.title || 'Workshop'}</p>
+              <p class="text-strong" style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#000000;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(workshop?.title || 'Workshop')}</p>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.4;">
                 ${scheduleRows}
                 <tr>
@@ -188,7 +276,7 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
           <!-- Greeting -->
           <tr>
             <td class="px text-strong" style="padding:0 30px 10px 30px;font-size:15px;color:#000000;font-weight:400;">
-              Dear ${customer.firstName || 'Customer'},
+              Dear ${escapeHtml(customer.firstName || 'Customer')},
             </td>
           </tr>
 
@@ -223,30 +311,28 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.4;">
                 <tr>
                   <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">Name</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;vertical-align:top;">${customer.firstName} ${customer.lastName}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;vertical-align:top;">${escapeHtml(customer.firstName)} ${escapeHtml(customer.lastName)}</td>
                 </tr>
                 <tr>
                   <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">Phone</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;vertical-align:top;">${customer.phone}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;vertical-align:top;">${escapeHtml(customer.phone)}</td>
                 </tr>
                 <tr>
                   <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">Email</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-all;padding:3px 0;color:#000000;font-weight:500;vertical-align:top;">${customer.email}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-all;padding:3px 0;color:#000000;font-weight:500;vertical-align:top;">${escapeHtml(customer.email)}</td>
                 </tr>
                 ${voucherCode ? `<tr>
                   <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">Voucher Code</td>
                   <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${escapeHtml(voucherCode)}</td>
                 </tr>` : ''}
-                <tr>
-                  <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">${voucherCode ? 'Payment' : 'Amount Paid'}</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${voucherCode ? 'Paid by gift voucher' : `${order.grandTotal} AED`}</td>
-                </tr>
+                ${amountRow}
               </table>
             </td>
           </tr>
 
           <!-- Dynamic workshop sections -->
           ${workshopSections}
+${paymentSection}
 
           <!-- Divider -->
           <tr>
@@ -393,6 +479,12 @@ const sendPriveBookingConfirmationMail = async ({ order, bookingsData }) => {
         const instagramIconDark = `${process.env.BASE_URL}/uploads/logo/instagram-dark.svg?v=2`;
         const tiktokIconDark = `${process.env.BASE_URL}/uploads/logo/tiktok-dark.svg?v=2`;
         const youtubeIconDark = `${process.env.BASE_URL}/uploads/logo/youtube-dark.svg?v=3`;
+        const priveRow = (label, value, strong) => `
+                <tr>
+                  <td width="40%" class="row-label text-muted" style="padding:3px 0;color:#4b5563;vertical-align:top;">${label}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:${strong ? 700 : 500};vertical-align:top;">${value}</td>
+                </tr>`;
+        const privePaymentRows = buildPaymentRows({ order, bookingsData, row: priveRow });
         const packagesList = bookingsData
             .map(({ booking }) => {
             return booking.items?.map((item) => item.optionTitle).join(', ');
@@ -563,7 +655,7 @@ const sendPriveBookingConfirmationMail = async ({ order, bookingsData }) => {
           <!-- Greeting -->
           <tr>
             <td class="px text-strong" style="padding:0 30px 4px 30px;font-size:15px;color:#111827;font-weight:400;">
-              Dear ${customer.firstName || 'Customer'},
+              Dear ${escapeHtml(customer.firstName || 'Customer')},
             </td>
           </tr>
 
@@ -621,15 +713,15 @@ const sendPriveBookingConfirmationMail = async ({ order, bookingsData }) => {
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.4;">
                 <tr>
                   <td width="40%" class="row-label text-muted" style="padding:3px 0;color:#4b5563;vertical-align:top;">Name</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${customer.firstName} ${customer.lastName}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${escapeHtml(customer.firstName)} ${escapeHtml(customer.lastName)}</td>
                 </tr>
                 <tr>
                   <td width="40%" class="row-label text-muted" style="padding:3px 0;color:#4b5563;vertical-align:top;">Phone No.</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${customer.phone}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${escapeHtml(customer.phone)}</td>
                 </tr>
                 <tr>
                   <td width="40%" class="row-label text-muted" style="padding:3px 0;color:#4b5563;vertical-align:top;">Email ID</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-all;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${customer.email}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-all;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${escapeHtml(customer.email)}</td>
                 </tr>
                 <tr>
                   <td width="40%" class="row-label text-muted" style="padding:3px 0;color:#4b5563;vertical-align:top;">No. of Guests</td>
@@ -650,14 +742,12 @@ const sendPriveBookingConfirmationMail = async ({ order, bookingsData }) => {
           <tr>
             <td class="px" style="padding:4px 30px 8px 30px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.4;">
-                <tr>
-                  <td width="40%" class="row-label text-muted" style="padding:3px 0;color:#4b5563;vertical-align:top;">Amount</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${order.grandTotal} AED</td>
-                </tr>
+                ${privePaymentRows ? '' : priveRow('Amount', `${order.grandTotal} AED`)}
                 <tr>
                   <td width="40%" class="row-label text-muted" style="padding:3px 0;color:#4b5563;vertical-align:top;">Package</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${packagesList || 'Signature'}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#111827;font-weight:500;vertical-align:top;">${escapeHtml(packagesList) || 'Signature'}</td>
                 </tr>
+                ${privePaymentRows}
               </table>
             </td>
           </tr>
