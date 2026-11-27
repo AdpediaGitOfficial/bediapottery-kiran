@@ -11,22 +11,24 @@ const escapeHtml = (value) => String(value ?? '')
     .replace(/"/g, '&quot;');
 /**
  * An Air-Dry Clay package says how many Wheel Pottery sessions and how many
- * Handbuilding sessions the customer chose. A kind of session the customer did not
- * choose is left out; other clays add nothing.
+ * Handbuilding sessions the customer chose. Both counts are always shown together,
+ * a zero included, so the customer sees the whole split. A booking that carries no
+ * split at all (an ordinary workshop), and any other clay, add nothing.
  */
 const AIR_DRY_CLAY = /air[\s-]*dry/i;
 const buildClaySessionRows = (item) => {
     if (!AIR_DRY_CLAY.test(String(item?.optionTitle ?? '')))
+        return '';
+    const wheel = Number(item.wheelPottery) || 0;
+    const handbuilding = Number(item.handBuild) || 0;
+    if (wheel <= 0 && handbuilding <= 0)
         return '';
     const row = (label, value) => `
               <tr>
                 <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;font-size:14px;vertical-align:top;">${label}</td>
                 <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;font-size:14px;vertical-align:top;">${value}</td>
               </tr>`;
-    const wheel = Number(item.wheelPottery) || 0;
-    const handbuilding = Number(item.handBuild) || 0;
-    return ((wheel > 0 ? row('Wheel Pottery sessions', wheel) : '') +
-        (handbuilding > 0 ? row('Handbuilding sessions', handbuilding) : ''));
+    return row('Wheel Pottery sessions', wheel) + row('Handbuilding sessions', handbuilding);
 };
 const formatMoney = (amount, currency) => `${Number(amount || 0).toFixed(2)} ${currency || 'AED'}`;
 /** "24 November 2026", in UAE time. */

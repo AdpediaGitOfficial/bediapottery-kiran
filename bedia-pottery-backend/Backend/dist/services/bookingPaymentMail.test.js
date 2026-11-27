@@ -166,14 +166,19 @@ describe('standard booking confirmation: Air-Dry Clay Wheel Pottery and Handbuil
         expect(h).toMatch(/Handbuilding sessions<\/td>\s*<td[^>]*>4<\/td>/);
         expect(h).not.toContain('Additional Handbuilding');
     });
-    it('leaves out a kind of session the customer did not choose', async () => {
+    it('shows both counts together, a zero included', async () => {
         await send(airDry({ wheelPottery: 12, handBuild: 0 }));
         expect(html()).toMatch(/Wheel Pottery sessions<\/td>\s*<td[^>]*>12<\/td>/);
-        expect(html()).not.toContain('Handbuilding sessions');
+        expect(html()).toMatch(/Handbuilding sessions<\/td>\s*<td[^>]*>0<\/td>/);
         mailService_1.sendEmail.mockClear();
         await send(airDry({ wheelPottery: 0, handBuild: 14 }));
-        expect(html()).not.toContain('Wheel Pottery sessions');
+        expect(html()).toMatch(/Wheel Pottery sessions<\/td>\s*<td[^>]*>0<\/td>/);
         expect(html()).toMatch(/Handbuilding sessions<\/td>\s*<td[^>]*>14<\/td>/);
+    });
+    it('treats a count that is missing as zero when the other one is given', async () => {
+        await send(airDry({ wheelPottery: 5, handBuild: undefined }));
+        expect(html()).toMatch(/Wheel Pottery sessions<\/td>\s*<td[^>]*>5<\/td>/);
+        expect(html()).toMatch(/Handbuilding sessions<\/td>\s*<td[^>]*>0<\/td>/);
     });
     it('recognises the clay however it is written', async () => {
         for (const title of ['Air Dry Clay', 'air-dry clay', 'Air-Dry Clay - Adults']) {
@@ -198,6 +203,6 @@ describe('standard booking confirmation: Air-Dry Clay Wheel Pottery and Handbuil
         booking.items.push({ optionTitle: 'Air-Dry Clay', people: 2, price: 249, subtotal: 498, wheelPottery: 2, handBuild: 0 });
         await send(booking);
         expect(html().match(/Wheel Pottery sessions/g)).toHaveLength(2);
-        expect(html().match(/Handbuilding sessions/g)).toHaveLength(1);
+        expect(html().match(/Handbuilding sessions/g)).toHaveLength(2);
     });
 });
