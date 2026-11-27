@@ -206,3 +206,139 @@ describe('standard booking confirmation: Air-Dry Clay Wheel Pottery and Handbuil
         expect(html().match(/Handbuilding sessions/g)).toHaveLength(2);
     });
 });
+describe('standard booking confirmation: Family Pottery Workshop', () => {
+    // Two adults and one kid: the package covers one adult and one kid, the second adult is an extra.
+    const airDryWheel = {
+        optionTitle: 'Air-Dry Clay',
+        people: 3,
+        adult: 2,
+        child: 1,
+        wheelPottery: 3,
+        handBuild: 0,
+        price: 400,
+        subtotal: 635,
+        priceBreakdown: [
+            { label: 'Air-Dry Clay (1 Adult + 1 Child)', unitPrice: 400, quantity: 1, amount: 400 },
+            { label: 'Air-Dry Clay Extra Adult', unitPrice: 235, quantity: 1, amount: 235 },
+        ],
+    };
+    const terracottaHand = {
+        optionTitle: 'Terracotta Clay',
+        people: 3,
+        adult: 2,
+        child: 1,
+        wheelPottery: 0,
+        handBuild: 3,
+        price: 450,
+        subtotal: 695,
+        priceBreakdown: [
+            { label: 'Terracotta Clay (1 Adult + 1 Child)', unitPrice: 450, quantity: 1, amount: 450 },
+            { label: 'Terracotta Clay Extra Adult', unitPrice: 245, quantity: 1, amount: 245 },
+        ],
+    };
+    const family = (items) => ({
+        customer,
+        bookingDate: '2026-12-01',
+        totalPeople: items.reduce((sum, i) => sum + i.people, 0),
+        totalAmount: items.reduce((sum, i) => sum + i.subtotal, 0),
+        items,
+    });
+    const send = (items, orderOverrides = {}) => mail.sendWorkshopBookingConfirmationMail({
+        order: order({ subtotal: 1330, taxAmount: 66.5, grandTotal: 1396.5, ...orderOverrides }),
+        bookingsData: [entry(family(items), 'Family Pottery Workshop')],
+    });
+    // the text of a row, ignoring the markup
+    const rows = () => html()
+        .replace(/<style[\s\S]*?<\/style>/g, '')
+        .replace(/<[^>]+>/g, '|')
+        .replace(/\s+/g, ' ');
+    it("says whether each line is for the wheel or for handbuilding, and how many adults and kids", async () => {
+        await send([airDryWheel, terracottaHand]);
+        const text = rows();
+        expect(text).toMatch(/Air-Dry Clay &ndash; Wheel[\s|]*2 Adults, 1 Kid/);
+        expect(text).toMatch(/Terracotta Clay &ndash; Handbuilding[\s|]*2 Adults, 1 Kid/);
+    });
+    it('does not print a bare guest total or the Birthday wheel and handbuilding lines for a family', async () => {
+        await send([airDryWheel, terracottaHand]);
+        expect(html()).not.toContain('3 Guests');
+        expect(html()).not.toContain('Wheel Pottery sessions');
+        expect(html()).not.toContain('Handbuilding sessions');
+    });
+    it('shows the package and the extra adult as their own price lines, adding up to the total', async () => {
+        await send([airDryWheel, terracottaHand]);
+        const h = html();
+        expect(h).toContain('Air-Dry Clay (1 Adult + 1 Child)');
+        expect(h).toContain('400.00 AED');
+        expect(h).toContain('Air-Dry Clay Extra Adult');
+        expect(h).toContain('235.00 AED');
+        expect(h).toContain('Terracotta Clay (1 Adult + 1 Child)');
+        expect(h).toContain('450.00 AED');
+        expect(h).toContain('Terracotta Clay Extra Adult');
+        expect(h).toContain('245.00 AED');
+        expect(h).toContain('VAT (5%)');
+        expect(h).toContain('1396.50 AED');
+        // 400 + 235 + 450 + 245 = 1330, the order's subtotal
+        expect(400 + 235 + 450 + 245).toBe(1330);
+    });
+    it('says "× 2" when an extra is charged twice', async () => {
+        const twoKidsExtra = {
+            ...terracottaHand,
+            people: 5,
+            adult: 2,
+            child: 3,
+            subtotal: 450 + 245 + 2 * 175,
+            priceBreakdown: [
+                { label: 'Terracotta Clay (1 Adult + 1 Child)', unitPrice: 450, quantity: 1, amount: 450 },
+                { label: 'Terracotta Clay Extra Adult', unitPrice: 245, quantity: 1, amount: 245 },
+                { label: 'Terracotta Clay Extra Child', unitPrice: 175, quantity: 2, amount: 350 },
+            ],
+        };
+        await send([twoKidsExtra], { subtotal: 1045, taxAmount: 52.25, grandTotal: 1097.25 });
+        expect(html()).toContain('Terracotta Clay Extra Child &times; 2');
+        expect(html()).toContain('350.00 AED');
+        expect(rows()).toMatch(/2 Adults, 3 Kids/);
+    });
+    it('uses the singular for one adult or one kid, and leaves out a group that is not there', async () => {
+        for (const [adult, child, expected] of [
+            [1, 1, '1 Adult, 1 Kid'],
+            [3, 0, '3 Adults'],
+            [0, 2, '2 Kids'],
+        ]) {
+            mailService_1.sendEmail.mockClear();
+            await send([{ ...airDryWheel, adult, child, people: adult + child, priceBreakdown: undefined }], { subtotal: 635, taxAmount: 31.75, grandTotal: 666.75 });
+            expect(rows()).toContain(expected);
+        }
+    });
+    it('names no making type when the booking does not say', async () => {
+        await send([{ ...airDryWheel, wheelPottery: 0, handBuild: 0 }], { subtotal: 635, taxAmount: 31.75, grandTotal: 666.75 });
+        expect(rows()).toMatch(/Air-Dry Clay[\s|]*2 Adults, 1 Kid/);
+        expect(html()).not.toContain('&ndash;');
+    });
+    it('falls back to one price line when there is no saved breakdown, or it does not add up', async () => {
+        await send([{ ...airDryWheel, priceBreakdown: undefined }], { subtotal: 635, taxAmount: 31.75, grandTotal: 666.75 });
+        expect(html()).toContain('Air-Dry Clay (3 guests)');
+        expect(html()).toContain('635.00 AED');
+        mailService_1.sendEmail.mockClear();
+        await send([{ ...airDryWheel, subtotal: 999 }], { subtotal: 999, taxAmount: 49.95, grandTotal: 1048.95 });
+        expect(html()).toContain('Air-Dry Clay (3 guests)');
+        expect(html()).not.toContain('Air-Dry Clay Extra Adult');
+    });
+    it('writes breakdown labels as text, never as markup', async () => {
+        const bad = { ...airDryWheel, priceBreakdown: [
+            { label: '<i onmouseover=x>Pack</i>', unitPrice: 400, quantity: 1, amount: 400 },
+            { label: 'Extra', unitPrice: 235, quantity: 1, amount: 235 },
+        ] };
+        await send([bad], { subtotal: 635, taxAmount: 31.75, grandTotal: 666.75 });
+        expect(html()).not.toContain('<i onmouseover');
+        expect(html()).toContain('&lt;i onmouseover=x&gt;Pack&lt;/i&gt;');
+    });
+    it('leaves Birthday and ordinary bookings alone: no adults or kids, so no family wording', async () => {
+        await mail.sendWorkshopBookingConfirmationMail({
+            order: order(),
+            bookingsData: [entry(sessionBooking())],
+        });
+        expect(html()).toContain('3 Guests');
+        expect(html()).not.toMatch(/\d+ Adults?(, \d+ Kids?)?<\/td>/);
+        expect(html()).not.toMatch(/\d+ Kids?</);
+    });
+});

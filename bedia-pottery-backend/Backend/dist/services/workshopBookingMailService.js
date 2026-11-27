@@ -10,6 +10,60 @@ const escapeHtml = (value) => String(value ?? '')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 /**
+ * A Family workshop line is a party of adults and kids, made by wheel or by
+ * handbuilding. The booking saves both counts and the making type for each line;
+ * these helpers turn them into the words the confirmation shows.
+ */
+const familyCount = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+};
+const isFamilyItem = (item) => familyCount(item?.adult) + familyCount(item?.child) > 0;
+/** "2 Adults, 1 Kid" */
+const describeFamilyParty = (item) => {
+    const adults = familyCount(item.adult);
+    const kids = familyCount(item.child);
+    const parts = [];
+    if (adults > 0)
+        parts.push(`${adults} ${adults === 1 ? 'Adult' : 'Adults'}`);
+    if (kids > 0)
+        parts.push(`${kids} ${kids === 1 ? 'Kid' : 'Kids'}`);
+    return parts.join(', ');
+};
+/** "Wheel", "Handbuilding", or empty when the booking does not say. */
+const describeMakingType = (item) => {
+    const wheel = familyCount(item.wheelPottery) > 0;
+    const handbuilding = familyCount(item.handBuild) > 0;
+    if (wheel && handbuilding)
+        return 'Wheel and Handbuilding';
+    if (wheel)
+        return 'Wheel';
+    if (handbuilding)
+        return 'Handbuilding';
+    return '';
+};
+/** What a package line is called, and what it says next to it. */
+const packageLabel = (item) => {
+    const title = escapeHtml(item.optionTitle);
+    if (!isFamilyItem(item))
+        return title;
+    const making = describeMakingType(item);
+    return making ? `${title} &ndash; ${making}` : title;
+};
+const packageValue = (item) => isFamilyItem(item) ? escapeHtml(describeFamilyParty(item)) : `${item.people} ${item.people === 1 ? 'Guest' : 'Guests'}`;
+/**
+ * The saved price breakdown of a Family line (the package, then each extra adult
+ * and extra kid), when it adds up to the line's price. Otherwise empty, and the
+ * line is shown as one amount, so the lines always add up to the total.
+ */
+const familyBreakdown = (item) => {
+    if (!isFamilyItem(item) || !item.priceBreakdown || !item.priceBreakdown.length)
+        return [];
+    const entries = Array.from(item.priceBreakdown);
+    const total = entries.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
+    return Math.abs(total - Number(item.subtotal)) <= 0.01 ? entries : [];
+};
+/**
  * An Air-Dry Clay package says how many Wheel Pottery sessions and how many
  * Handbuilding sessions the customer chose. Both counts are always shown together,
  * a zero included, so the customer sees the whole split. A booking that carries no
@@ -17,6 +71,9 @@ const escapeHtml = (value) => String(value ?? '')
  */
 const AIR_DRY_CLAY = /air[\s-]*dry/i;
 const buildClaySessionRows = (item) => {
+    // A Family line says its party and making type on the package line itself.
+    if (isFamilyItem(item))
+        return '';
     if (!AIR_DRY_CLAY.test(String(item?.optionTitle ?? '')))
         return '';
     const wheel = Number(item.wheelPottery) || 0;
@@ -65,10 +122,19 @@ const buildPaymentRows = ({ order, bookingsData, row }) => {
         for (const item of booking?.items || []) {
             if (typeof item.subtotal !== 'number')
                 continue;
+            const prefix = several && workshop?.title ? `${escapeHtml(workshop.title)}: ` : '';
+            const breakdown = familyBreakdown(item);
+            if (breakdown.length) {
+                // The package and each extra adult or kid, so the lines add up.
+                for (const entry of breakdown) {
+                    const times = Number(entry.quantity) > 1 ? ` &times; ${Number(entry.quantity)}` : '';
+                    lines.push(row(`${prefix}${escapeHtml(entry.label)}${times}`, formatMoney(entry.amount, currency)));
+                }
+                continue;
+            }
             const guests = `${item.people} ${item.people === 1 ? 'guest' : 'guests'}`;
             const title = escapeHtml(item.optionTitle || 'Booking');
-            const label = several && workshop?.title ? `${escapeHtml(workshop.title)}: ${title} (${guests})` : `${title} (${guests})`;
-            lines.push(row(label, formatMoney(item.subtotal, currency)));
+            lines.push(row(`${prefix}${title} (${guests})`, formatMoney(item.subtotal, currency)));
         }
     }
     const otherSubtotal = order.subtotal - sessionsSubtotal;
@@ -151,8 +217,8 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
             const itemRows = booking.items
                 ?.map((item) => `
               <tr>
-                <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;font-size:14px;vertical-align:top;">${escapeHtml(item.optionTitle)}</td>
-                <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;font-size:14px;vertical-align:top;">${item.people} ${item.people === 1 ? 'Guest' : 'Guests'}</td>
+                <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;font-size:14px;vertical-align:top;">${packageLabel(item)}</td>
+                <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;font-size:14px;vertical-align:top;">${packageValue(item)}</td>
               </tr>${buildClaySessionRows(item)}`)
                 .join('') || '';
             // Gift vouchers have no date/slot until the recipient redeems them.
