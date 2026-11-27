@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { CartData } from '@/services/cart.service';
 import { getCartTotals } from '@/utils/cartTotals';
+import { describeFamilyLine } from '@/utils/familyParty';
 
 interface CartStepProps {
   onNext: () => void;
@@ -145,11 +146,8 @@ export default function CartStep({ onNext, data, onDeleteItem, loading = false, 
     )}
   </div>
 ) : item.workshopType === "family" ? (
-  /* 2. ELSE IF "family" -> Show subtotal */
-  <></>
-  // <p className="font-medium text-black">
-  //   {item.currency} {item.subtotal.toFixed(2)}
-  // </p>
+  /* 2. ELSE IF "family" -> Wheel or Handbuilding, and how many adults and kids */
+  <p className="text-sm text-gray-500">{describeFamilyLine(item)}</p>
 ) : (
   /* 3. ELSE -> Standard price breakdown */
   <p className="text-sm text-gray-500">

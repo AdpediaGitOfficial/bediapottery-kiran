@@ -3,6 +3,7 @@ import {
   type OrderDetails,
 } from "@/services/order.service";
 import { ClearCartOnSuccess } from "./ClearCartOnSuccess";
+import { BookingLines } from "./BookingLines";
 import { ConfirmPaymentOnSuccess } from "./ConfirmPaymentOnSuccess";
 import { FileCheck2, ShoppingBag, Wallet } from "lucide-react";
 import Image from "next/image";
@@ -125,54 +126,7 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
                     />
                   </div>
 
-                  <div className="flex-grow flex flex-col justify-between w-full">
-                    <div className="flex  items-start mb-2">
-                      <div className="w-5/12">
-                        <h3 className="font-normal  text-black text-[15px]">
-                          {item.bookingId.workshopId.title}-
-                          {item.bookingId.items[0]?.optionTitle}
-                        </h3>
-                      </div>
-                      <div className="w-7/12 flex justify-between items-start">
-                        <div className="text-sm text-gray-500 space-y-1">
-                          {(item.bookingId.items[0]?.wheelPottery ?? 0) > 0 && (
-                            <p>
-                              {item.bookingId.items[0]?.wheelPottery} x Wheel
-                              Pottery
-                              <span className="ml-1 text-black">
-                                {item.bookingId.currency}{" "}
-                                {Number(
-                                  item.bookingId.items[0]?.price ?? 0,
-                                ).toFixed(2)}
-                              </span>
-                            </p>
-                          )}
-                          {(item.bookingId.items[0]?.handBuild ?? 0) > 0 && (
-                            <p>
-                              {item.bookingId.items[0]?.handBuild} x Handbuilding
-                              <span className="ml-1 text-black">
-                                {item.bookingId.currency}{" "}
-                                {item.bookingId.items[0]?.price.toFixed(2)}
-                              </span>
-                            </p>
-                          )}
-                          <p>
-                            {item.bookingId.items[0]?.people} x 
-                            <span className="ml-1 text-black">
-                              {item.bookingId.currency}{" "}
-                              {item.bookingId.items[0]?.price.toFixed(2)}
-                            </span>
-                          </p>
-                        </div>
-                        <p>
-                          <span className="ml-1 text-gray-500">
-                            {item.bookingId.currency}{" "}
-                            {item.bookingId.items[0]?.subtotal.toFixed(2)}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                  <BookingLines booking={item.bookingId} variant="desktop" />
                 </div>
               ))}
             </div>
@@ -197,47 +151,7 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
 
                     {/* Item Details */}
                     <div className="flex-grow flex flex-col justify-center text-sm relative">
-                      <h3 className="font-semibold text-[15px] text-black mb-2 leading-tight">
-                        {item.bookingId.workshopId.title}-
-                        {item.bookingId.items[0]?.optionTitle}
-                      </h3>
-                      <div className="flex justify-between xl:items-center items-end text-gray-500 flex-col ">
-                        <>
-                          {(item.bookingId.items[0]?.wheelPottery ?? 0) > 0 && (
-                            <p>
-                          {item.bookingId.items[0]?.wheelPottery}    x  Wheel
-                              Pottery
-                              <span className="ml-1 text-black">
-                                {item.bookingId.currency}{" "}
-                                {Number(
-                                  item.bookingId.items[0]?.price ?? 0,
-                                ).toFixed(2)}
-                              </span>
-                            </p>
-                          )}
-                          {(item.bookingId.items[0]?.handBuild ?? 0) > 0 && (
-                            <p>
-                          {item.bookingId.items[0]?.handBuild}{" "}    x 
-                              Handbuilding
-                              <span className="ml-1 text-black">
-                                {item.bookingId.currency}{" "}
-                                {item.bookingId.items[0]?.price.toFixed(2)}
-                              </span>
-                            </p>
-                          )}
-                          <p>
-                            {item.bookingId.items[0]?.people} x {" "}
-                            <span className=" text-black">
-                              {item.bookingId.currency}{" "}
-                              {item.bookingId.items[0]?.price.toFixed(2)}
-                            </span>
-                          </p>
-                        </>
-                        {/* <p className=" text-black">
-                          {item.bookingId.currency}{" "}
-                          {item.bookingId.items[0]?.subtotal.toFixed(2)}
-                        </p> */}
-                      </div>
+                      <BookingLines booking={item.bookingId} variant="mobile" />
                     </div>
                   </div>
                 </div>

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { CartData, deleteCart } from "@/services/cart.service";
 import { getCartTotals, formatPercent } from "@/utils/cartTotals";
+import { describeFamilyLine } from "@/utils/familyParty";
 
 function isBirthdayPackage(title: string, optionTitle: string) {
   return `${title} ${optionTitle}`
@@ -121,12 +122,7 @@ export default function MobileCart({
   {item.workshopType === "family" ? (
     // IF: family
     <>
-      <p>
-        {/* x {item.people}{" "}
-        <span className="ml-1">
-          {item.currency} {item.price.toFixed(2)}
-        </span> */}
-      </p>
+      <p>{describeFamilyLine(item)}</p>
 
       <p className="font-medium text-black">
         {item.currency} {item.subtotal.toFixed(2)}
