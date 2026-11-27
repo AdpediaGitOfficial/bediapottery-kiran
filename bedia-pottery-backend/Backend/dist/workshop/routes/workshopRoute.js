@@ -139,6 +139,7 @@ router.post('/cart/checkout', workshopController_1.checkoutCart);
 router.post('/pottery-booking', (0, validate_1.validateReqBody)(potteryBookingSchema_1.potteryBookingSchema), sanitizeMiddleware_1.default, workshopController_1.potteryBooking);
 // Order apis
 router.get('/order/:orderId', workshopController_1.getOrderDetails);
+router.post('/order/:orderId/check-payment', workshopController_1.checkOrderPayment);
 /* ---------------- Item tracking ----------------
  *
  * Terracotta and Ceramic pieces stay in the studio for weeks after the

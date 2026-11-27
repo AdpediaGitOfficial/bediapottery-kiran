@@ -38,6 +38,7 @@ const dashboardRoute_1 = __importDefault(require("./dashboard/routes/dashboardRo
 const studioRoute_1 = __importDefault(require("./studio/routes/studioRoute"));
 const workshopController_1 = require("./workshop/controllers/workshopController");
 const potteryTrackingJob_1 = require("./workshop/jobs/potteryTrackingJob");
+const paymentCheckJob_1 = require("./workshop/jobs/paymentCheckJob");
 const uploadedFiles_1 = require("./utils/uploadedFiles");
 const app = (0, express_1.default)();
 (0, connectToDatabase_1.default)();
@@ -102,4 +103,5 @@ app.listen(port, () => {
     // Moves tracked pottery through drying, firing and painting, turns pieces
     // ready after three weeks, warns about and then discards uncollected ones.
     (0, potteryTrackingJob_1.startPotteryTrackingJob)();
+    (0, paymentCheckJob_1.startPaymentCheckJob)();
 });

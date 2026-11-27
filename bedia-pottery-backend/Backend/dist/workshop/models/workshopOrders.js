@@ -74,6 +74,11 @@ const orderSchema = new mongoose_1.Schema({
     stripeSessionId: String,
     stripeSessionUrl: String,
     holdExpiresAt: Date,
+    // The payment check asks Stripe about orders still pending: when it last did, and
+    // the session status it found ('expired' means no payment can ever arrive, so the
+    // order is not asked about again).
+    paymentCheckedAt: Date,
+    stripeSessionStatus: String,
     paymentGatewayResponse: mongoose_1.Schema.Types.Mixed,
     isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });

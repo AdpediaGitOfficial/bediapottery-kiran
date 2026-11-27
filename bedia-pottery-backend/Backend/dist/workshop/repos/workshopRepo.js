@@ -853,6 +853,41 @@ const orderExistsRepo = async (orderId) => {
     return !!(await workshopOrders_1.default.exists({ _id: orderId }));
 };
 exports.orderExistsRepo = orderExistsRepo;
+/**
+ * Pending orders that have a Stripe payment page and might have been paid: the
+ * ones the payment check asks Stripe about. Orders whose page is known to be
+ * expired are left out, and so is anything older than `since`.
+ */
+const findOrdersAwaitingPaymentCheckRepo = async ({ since, limit = 100 }) => {
+    return await workshopOrders_1.default.find({
+        paymentStatus: 'pending',
+        isDeleted: false,
+        stripeSessionId: { $exists: true, $nin: [null, ''] },
+        stripeSessionStatus: { $ne: 'expired' },
+        createdAt: { $gte: since },
+    })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .select('_id orderNumber stripeSessionId grandTotal currency paymentStatus createdAt')
+        .lean();
+};
+exports.findOrdersAwaitingPaymentCheckRepo = findOrdersAwaitingPaymentCheckRepo;
+const findOrderForPaymentCheckRepo = async (orderId) => {
+    return await workshopOrders_1.default.findOne({ _id: orderId, isDeleted: false })
+        .select('_id orderNumber stripeSessionId stripeSessionStatus grandTotal currency paymentStatus paymentCheckedAt createdAt')
+        .lean();
+};
+exports.findOrderForPaymentCheckRepo = findOrderForPaymentCheckRepo;
+/** Records that Stripe was asked, and what it said about the payment page. */
+const markOrderPaymentCheckedRepo = async (orderId, sessionStatus) => {
+    return await workshopOrders_1.default.updateOne({ _id: orderId }, {
+        $set: {
+            paymentCheckedAt: new Date(),
+            ...(sessionStatus ? { stripeSessionStatus: sessionStatus } : {}),
+        },
+    });
+};
+exports.markOrderPaymentCheckedRepo = markOrderPaymentCheckedRepo;
 /** Puts an order back to pending so Stripe's retry can process it again. */
 const revertOrderToPendingRepo = async (orderId) => {
     return await workshopOrders_1.default.updateOne({ _id: orderId }, { paymentStatus: 'pending' });

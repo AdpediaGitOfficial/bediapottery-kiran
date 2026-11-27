@@ -173,3 +173,34 @@ export async function getOrderById(
 
   return raw?.data;
 }
+
+/* =========================
+   CHECK PAYMENT
+========================= */
+
+export type PaymentCheckStatus = "paid" | "pending" | "not-found" | "error";
+
+/**
+ * Asks the server to check, with Stripe, whether this order was paid, and to
+ * confirm it (and send the confirmation email) when it was. Never throws: the
+ * success page shows the order either way, and the server also checks on its own.
+ */
+export async function checkOrderPayment(
+  orderId: string
+): Promise<PaymentCheckStatus> {
+  if (!API_BASE_URL || !orderId) return "error";
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/workshop/order/${encodeURIComponent(orderId)}/check-payment`,
+      { method: "POST", cache: "no-store" }
+    );
+    if (!res.ok) return "error";
+    const body = await res.json().catch(() => null);
+    const status = body?.result?.status;
+    return status === "paid" || status === "pending" || status === "not-found"
+      ? status
+      : "error";
+  } catch {
+    return "error";
+  }
+}

@@ -3,6 +3,7 @@ import {
   type OrderDetails,
 } from "@/services/order.service";
 import { ClearCartOnSuccess } from "./ClearCartOnSuccess";
+import { ConfirmPaymentOnSuccess } from "./ConfirmPaymentOnSuccess";
 import { FileCheck2, ShoppingBag, Wallet } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -76,6 +77,7 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
         {orderdata && (
           <>
              <ClearCartOnSuccess />
+             <ConfirmPaymentOnSuccess orderId={orderId} />
             {/* Header / Status */}
             <div className="flex justify-between items-end mb-8 border-b border-gray-200 pb-7">
               <span className="text-black font-medium">

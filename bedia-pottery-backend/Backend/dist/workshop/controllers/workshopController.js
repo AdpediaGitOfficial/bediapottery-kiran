@@ -7,6 +7,7 @@ exports.checkPotteryWorkshopCapacity = exports.confirmGiftRedemption = exports.v
 const express_async_handler_1 = __importDefault(require("express-async-handler"));
 const workshopUseCase_1 = require("../useCases/workshopUseCase");
 const confirmPaidOrderUseCase_1 = require("../useCases/confirmPaidOrderUseCase");
+const orderPaymentCheckUseCase_1 = require("../useCases/orderPaymentCheckUseCase");
 const stripe_1 = require("../../config/stripe");
 const workshopRepo_1 = require("../repos/workshopRepo");
 const express_validator_1 = require("express-validator");
@@ -416,4 +417,10 @@ exports.checkPotteryWorkshopCapacity = (0, express_async_handler_1.default)(asyn
         message: 'Workshop capacity fetched successfully',
         result,
     });
+});
+// The "payment successful" page asks whether its order was paid, and confirms it
+// when Stripe says so, without waiting for the next scheduled payment check.
+exports.checkOrderPayment = (0, express_async_handler_1.default)(async (req, res) => {
+    const status = await (0, orderPaymentCheckUseCase_1.checkOrderPaymentByIdUseCase)(req.params.orderId);
+    res.status(200).json({ success: true, result: { status } });
 });
