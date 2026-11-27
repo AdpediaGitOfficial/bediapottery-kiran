@@ -231,7 +231,8 @@ const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
     if (!success) {
       return;
     }
-    router.push("/checkout");
+    // "Book now" opens the cart, where the customer reviews the bag before paying.
+    router.push("/cart");
   };
   // const [activeTab, setActiveTab] = useState(
   //   product.moreDetails?.[0]?._id || "",

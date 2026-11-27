@@ -245,7 +245,8 @@ const FamilyProductDetailClient: React.FC<ProductDetailClientProps> = ({
       return
     }
      localStorage.setItem('checkoutCartStep', '1');
-    router.push('/checkout');
+    // "Book now" opens the cart, where the customer reviews the bag before paying.
+    router.push('/cart');
   }
 
   const handlecheck = async (destination: 'cart' | 'checkout') => {

@@ -306,7 +306,8 @@ const BirthdayHero: React.FC<BirthdayProps> = ({ product, type }) => {
     if (!success) {
       return;
     }
-    router.push("/checkout");
+    // "Book now" opens the cart, where the customer reviews the bag before paying.
+    router.push("/cart");
   };
 
   // Enable check: Date and slot must be selected, and total people must meet bounds
