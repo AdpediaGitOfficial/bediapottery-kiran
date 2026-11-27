@@ -149,3 +149,47 @@ describe('Bedia Prive confirmation: payment', () => {
         expect(html()).toContain('500 AED');
     });
 });
+describe('standard booking confirmation: Air-Dry Clay session split', () => {
+    const airDry = (extra = {}) => ({
+        customer,
+        bookingDate: '2027-01-15',
+        totalPeople: 14,
+        totalAmount: 3486,
+        items: [{ optionTitle: 'Air-Dry Clay', people: 14, price: 249, subtotal: 3486, wheelPottery: 10, handBuild: 4, ...extra }],
+    });
+    const send = (booking) => mail.sendWorkshopBookingConfirmationMail({ order: order(), bookingsData: [entry(booking, 'Birthday Package')] });
+    it('shows how many Wheel Pottery and how many Additional Handbuilding sessions were chosen', async () => {
+        await send(airDry());
+        const h = html();
+        expect(h).toContain('Air-Dry Clay');
+        expect(h).toMatch(/Wheel Pottery sessions<\/td>\s*<td[^>]*>10<\/td>/);
+        expect(h).toMatch(/Additional Handbuilding sessions<\/td>\s*<td[^>]*>4<\/td>/);
+    });
+    it('shows a zero too, so the customer sees the whole split', async () => {
+        await send(airDry({ wheelPottery: 12, handBuild: 0 }));
+        expect(html()).toMatch(/Wheel Pottery sessions<\/td>\s*<td[^>]*>12<\/td>/);
+        expect(html()).toMatch(/Additional Handbuilding sessions<\/td>\s*<td[^>]*>0<\/td>/);
+    });
+    it('recognises the clay however it is written', async () => {
+        for (const title of ['Air Dry Clay', 'air-dry clay', 'Air-Dry Clay - Adults']) {
+            mailService_1.sendEmail.mockClear();
+            await send(airDry({ optionTitle: title }));
+            expect(html()).toContain('Wheel Pottery sessions');
+        }
+    });
+    it('adds nothing for another clay, even when it carries the same counts', async () => {
+        await send(airDry({ optionTitle: 'Ceramic Clay' }));
+        expect(html()).not.toContain('Wheel Pottery sessions');
+        expect(html()).not.toContain('Additional Handbuilding sessions');
+    });
+    it('adds nothing for an Air-Dry booking that has no split', async () => {
+        await send(airDry({ wheelPottery: undefined, handBuild: undefined }));
+        expect(html()).not.toContain('Wheel Pottery sessions');
+    });
+    it('each Air-Dry line of a booking shows its own split', async () => {
+        const booking = airDry();
+        booking.items.push({ optionTitle: 'Air-Dry Clay', people: 2, price: 249, subtotal: 498, wheelPottery: 2, handBuild: 0 });
+        await send(booking);
+        expect(html().match(/Wheel Pottery sessions/g)).toHaveLength(2);
+    });
+});

@@ -9,6 +9,34 @@ const escapeHtml = (value) => String(value ?? '')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+/**
+ * An Air-Dry Clay package says how it is split: how many Wheel Pottery sessions
+ * and how many Additional Handbuilding sessions the customer chose. Both counts are
+ * shown, a zero included, so the customer sees the whole split. Other clays, and
+ * bookings that carry no split, add nothing.
+ */
+const AIR_DRY_CLAY = /air[\s-]*dry/i;
+const claySessionCounts = (item) => {
+    if (!AIR_DRY_CLAY.test(String(item?.optionTitle ?? '')))
+        return null;
+    const wheel = Number(item.wheelPottery) || 0;
+    const handbuilding = Number(item.handBuild) || 0;
+    if (wheel <= 0 && handbuilding <= 0)
+        return null;
+    return { wheel, handbuilding };
+};
+const buildClaySessionRows = (item) => {
+    const counts = claySessionCounts(item);
+    if (!counts)
+        return '';
+    const row = (label, value) => `
+              <tr>
+                <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;font-size:14px;vertical-align:top;">${label}</td>
+                <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;font-size:14px;vertical-align:top;">${value}</td>
+              </tr>`;
+    return (row('Wheel Pottery sessions', counts.wheel) +
+        row('Additional Handbuilding sessions', counts.handbuilding));
+};
 const formatMoney = (amount, currency) => `${Number(amount || 0).toFixed(2)} ${currency || 'AED'}`;
 /** "24 November 2026", in UAE time. */
 const formatPaymentDate = (value) => {
@@ -133,7 +161,7 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
               <tr>
                 <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;font-size:14px;vertical-align:top;">${escapeHtml(item.optionTitle)}</td>
                 <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:500;font-size:14px;vertical-align:top;">${item.people} ${item.people === 1 ? 'Guest' : 'Guests'}</td>
-              </tr>`)
+              </tr>${buildClaySessionRows(item)}`)
                 .join('') || '';
             // Gift vouchers have no date/slot until the recipient redeems them.
             const isScheduled = !!booking.bookingDate;
