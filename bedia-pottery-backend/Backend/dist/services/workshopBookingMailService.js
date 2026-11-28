@@ -52,35 +52,6 @@ const packageLabel = (item) => {
 };
 const packageValue = (item) => isFamilyItem(item) ? escapeHtml(describeFamilyParty(item)) : `${item.people} ${item.people === 1 ? 'Guest' : 'Guests'}`;
 /**
- * The saved price breakdown of a Family line (the package, then each extra adult
- * and extra kid), when it adds up to the line's price. Otherwise empty, and the
- * line is shown as one amount, so the lines always add up to the total.
- */
-const familyBreakdown = (item) => {
-    if (!isFamilyItem(item) || !item.priceBreakdown || !item.priceBreakdown.length)
-        return [];
-    const entries = Array.from(item.priceBreakdown);
-    const total = entries.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
-    return Math.abs(total - Number(item.subtotal)) <= 0.01 ? entries : [];
-};
-/**
- * The short name of a breakdown line under its clay: "Air-Dry Clay (1 Adult + 1
- * Child)" becomes "1 Adult + 1 Child", and "Air-Dry Clay Extra Adult" becomes "Extra
- * Adult". A label that does not start with the clay's name is kept whole.
- */
-const shortBreakdownLabel = (label, clayTitle) => {
-    const full = String(label ?? '').trim();
-    const clay = String(clayTitle ?? '').trim();
-    if (!clay || !full.toLowerCase().startsWith(clay.toLowerCase()))
-        return full;
-    const rest = full
-        .slice(clay.length)
-        .trim()
-        .replace(/^\((.*)\)$/, '$1')
-        .trim();
-    return rest || full;
-};
-/**
  * An Air-Dry Clay package says how many Wheel Pottery sessions and how many
  * Handbuilding sessions the customer chose. Both counts are always shown together,
  * a zero included, so the customer sees the whole split. A booking that carries no
@@ -126,44 +97,36 @@ const formatPaymentDate = (value) => {
  * here — they have their own email and their own details — but their amount is
  * still part of the total, so it is shown as one line to make the lines add up.
  */
-const buildPaymentRows = ({ order, bookingsData, row }) => {
+const buildPaymentRows = ({ order, bookingsData, row, summaryOnly = false }) => {
     if (!order || typeof order.subtotal !== 'number' || typeof order.grandTotal !== 'number') {
         return '';
     }
     const currency = order.currency;
     const several = bookingsData.length > 1;
     const lines = [];
-    let sessionsSubtotal = 0;
-    for (const { booking, workshop } of bookingsData) {
-        sessionsSubtotal += Number(booking?.totalAmount) || 0;
-        for (const item of booking?.items || []) {
-            if (typeof item.subtotal !== 'number')
-                continue;
-            const prefix = several && workshop?.title ? `${escapeHtml(workshop.title)}: ` : '';
-            const breakdown = familyBreakdown(item);
-            if (breakdown.length) {
-                // The clay as a heading, then "1 Adult + 1 Child" and each extra adult
-                // or child under it, so the lines add up to the line's price.
-                lines.push(row(`${prefix}${escapeHtml(item.optionTitle || 'Booking')}`, '', true));
-                for (const entry of breakdown) {
-                    const times = Number(entry.quantity) > 1 ? ` &times; ${Number(entry.quantity)}` : '';
-                    const label = shortBreakdownLabel(entry.label, item.optionTitle);
-                    lines.push(row(`&nbsp;&nbsp;${escapeHtml(label)}${times}`, formatMoney(entry.amount, currency)));
-                }
-                continue;
+    // The summary is only the total, the date and the reference. The fuller version
+    // (what was paid for, and the VAT) is for the emails that still show it.
+    if (!summaryOnly) {
+        let sessionsSubtotal = 0;
+        for (const { booking, workshop } of bookingsData) {
+            sessionsSubtotal += Number(booking?.totalAmount) || 0;
+            for (const item of booking?.items || []) {
+                if (typeof item.subtotal !== 'number')
+                    continue;
+                const prefix = several && workshop?.title ? `${escapeHtml(workshop.title)}: ` : '';
+                const guests = `${item.people} ${item.people === 1 ? 'guest' : 'guests'}`;
+                const title = escapeHtml(item.optionTitle || 'Booking');
+                lines.push(row(`${prefix}${title} (${guests})`, formatMoney(item.subtotal, currency)));
             }
-            const guests = `${item.people} ${item.people === 1 ? 'guest' : 'guests'}`;
-            const title = escapeHtml(item.optionTitle || 'Booking');
-            lines.push(row(`${prefix}${title} (${guests})`, formatMoney(item.subtotal, currency)));
         }
-    }
-    const otherSubtotal = order.subtotal - sessionsSubtotal;
-    if (otherSubtotal > 0.005) {
-        lines.push(row('Gift vouchers (sent in a separate email)', formatMoney(otherSubtotal, currency)));
-    }
-    if (Number(order.taxAmount) > 0) {
-        const percent = Number(order.taxPercent) > 0 ? ` (${Number(order.taxPercent)}%)` : '';
-        lines.push(row(`VAT${percent}`, formatMoney(order.taxAmount, currency)));
+        const otherSubtotal = order.subtotal - sessionsSubtotal;
+        if (otherSubtotal > 0.005) {
+            lines.push(row('Gift vouchers (sent in a separate email)', formatMoney(otherSubtotal, currency)));
+        }
+        if (Number(order.taxAmount) > 0) {
+            const percent = Number(order.taxPercent) > 0 ? ` (${Number(order.taxPercent)}%)` : '';
+            lines.push(row(`VAT${percent}`, formatMoney(order.taxAmount, currency)));
+        }
     }
     lines.push(row('Total paid', formatMoney(order.grandTotal, currency), true));
     lines.push(row('Payment date', formatPaymentDate(order.updatedAt)));
@@ -207,7 +170,7 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
                   <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:${strong ? 700 : 500};vertical-align:top;">${value}</td>
                 </tr>`;
         // A redemption is paid for by the voucher, so it shows no amounts at all.
-        const paymentRows = voucherCode ? '' : buildPaymentRows({ order, bookingsData, row: paymentRow });
+        const paymentRows = voucherCode ? '' : buildPaymentRows({ order, bookingsData, row: paymentRow, summaryOnly: true });
         const paymentSection = paymentRows
             ? `
           <!-- Payment -->

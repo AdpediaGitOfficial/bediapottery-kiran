@@ -45,59 +45,52 @@ beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
 });
 describe('standard booking confirmation: payment', () => {
-    it('lists what was paid for, the VAT, the total, the date and the reference', async () => {
+    const paymentSection = () => {
+        const text = html().replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, '|').replace(/\s+/g, ' ');
+        const from = text.indexOf('Payment|');
+        return text.slice(from, text.indexOf('Location'));
+    };
+    it('the payment section is only the total, the date and the reference', async () => {
         await mail.sendWorkshopBookingConfirmationMail({ order: order(), bookingsData: [entry()] });
-        const h = html();
-        expect(h).toContain('Payment');
-        expect(h).toContain('Ceramic Clay - Adults (3 guests)');
-        expect(h).toContain('747.00 AED');
-        expect(h).not.toContain('Subtotal');
-        expect(h).toContain('VAT (5%)');
-        expect(h).toContain('37.35 AED');
-        expect(h).toContain('Total paid');
-        expect(h).toContain('784.35 AED');
-        expect(h).toContain('Payment date');
-        expect(h).toContain('24 November 2026');
-        expect(h).toContain('Payment reference');
-        expect(h).toContain('pi_3Test123');
-        // the total is shown once, in the payment section, not also as "Amount Paid"
-        expect(h).not.toContain('Amount Paid');
+        const section = paymentSection();
+        expect(section).toMatch(/Total paid[\s|]*784\.35 AED/);
+        expect(section).toMatch(/Payment date[\s|]*24 November 2026/);
+        expect(section).toMatch(/Payment reference[\s|]*pi_3Test123/);
+        // nothing else: no package price, VAT, subtotal, or "Amount Paid" line
+        expect(section).not.toContain('VAT');
+        expect(section).not.toContain('Subtotal');
+        expect(section).not.toContain('Ceramic Clay');
+        expect(section).not.toContain('747.00');
+        expect(section).not.toContain('37.35');
+        expect(html()).not.toContain('Amount Paid');
         // the event details are still there
-        expect(h).toContain('6:00 PM - 7:30 PM');
-        expect(h).toContain('January 15, 2027');
+        expect(html()).toContain('6:00 PM - 7:30 PM');
+        expect(html()).toContain('January 15, 2027');
     });
-    it('leaves out the VAT line when there is no VAT, and the reference when there is none', async () => {
+    it('leaves out the reference when there is none', async () => {
         await mail.sendWorkshopBookingConfirmationMail({
-            order: order({ taxPercent: 0, taxAmount: 0, grandTotal: 747, paymentId: undefined }),
+            order: order({ paymentId: undefined }),
             bookingsData: [entry()],
         });
-        expect(html()).not.toContain('VAT');
-        expect(html()).not.toContain('Payment reference');
         expect(html()).toContain('Total paid');
+        expect(html()).toContain('Payment date');
+        expect(html()).not.toContain('Payment reference');
     });
-    it('two sessions in one order: each line says which workshop it belongs to', async () => {
-        const second = sessionBooking({
-            totalAmount: 249,
-            totalPeople: 1,
-            items: [{ optionTitle: 'Air-Dry Clay', people: 1, price: 249, subtotal: 249 }],
-        });
-        await mail.sendWorkshopBookingConfirmationMail({
-            order: order({ subtotal: 996, taxAmount: 49.8, grandTotal: 1045.8 }),
-            bookingsData: [entry(), entry(second, 'Birthday Package')],
-        });
-        expect(html()).toContain('Pottery Wheel Experience: Ceramic Clay - Adults (3 guests)');
-        expect(html()).toContain('Birthday Package: Air-Dry Clay (1 guest)');
-        expect(html()).toContain('1045.80 AED');
-    });
-    it('a session bought with a gift voucher: the voucher is one line, so the lines add up', async () => {
+    it('a cart with a gift voucher shows the whole order total, and still nothing else', async () => {
         await mail.sendWorkshopBookingConfirmationMail({
             order: order({ subtotal: 996, taxAmount: 49.8, grandTotal: 1045.8 }),
             bookingsData: [entry()],
         });
-        expect(html()).toContain('Gift vouchers (sent in a separate email)');
-        expect(html()).toContain('249.00 AED');
-        expect(html()).not.toContain('Subtotal');
-        expect(html()).toContain('1045.80 AED');
+        expect(paymentSection()).toMatch(/Total paid[\s|]*1045\.80 AED/);
+        expect(html()).not.toContain('Gift vouchers (sent in a separate email)');
+    });
+    it('writes the payment reference as text, never as markup', async () => {
+        await mail.sendWorkshopBookingConfirmationMail({
+            order: order({ paymentId: '<i onmouseover=x>pi</i>' }),
+            bookingsData: [entry()],
+        });
+        expect(html()).not.toContain('<i onmouseover');
+        expect(html()).toContain('&lt;i onmouseover=x&gt;pi&lt;/i&gt;');
     });
     it('writes what a customer or workshop is called as text, never as markup', async () => {
         const booking = sessionBooking({
@@ -124,21 +117,44 @@ describe('standard booking confirmation: payment', () => {
         });
         expect(html()).toContain('BP966FD45A');
         expect(html()).toContain('Paid by gift voucher');
-        expect(html()).not.toContain('Subtotal');
         expect(html()).not.toContain('Total paid');
         expect(html()).not.toContain('784.35');
     });
 });
 describe('Bedia Prive confirmation: payment', () => {
-    it('shows the same payment lines after the package', async () => {
+    it('shows what was paid for, the VAT, the total, the date and the reference after the package', async () => {
         await mail.sendPriveBookingConfirmationMail({ order: order(), bookingsData: [entry()] });
         const h = html();
         expect(h).toContain('Package');
+        expect(h).toContain('Ceramic Clay - Adults (3 guests)');
+        expect(h).toContain('747.00 AED');
         expect(h).toContain('VAT (5%)');
         expect(h).toContain('Total paid');
         expect(h).toContain('784.35 AED');
         expect(h).toContain('pi_3Test123');
         expect(h).not.toContain('>Amount<');
+    });
+    it('two sessions in one order: each line says which workshop it belongs to', async () => {
+        const second = sessionBooking({
+            totalAmount: 249,
+            totalPeople: 1,
+            items: [{ optionTitle: 'Air-Dry Clay', people: 1, price: 249, subtotal: 249 }],
+        });
+        await mail.sendPriveBookingConfirmationMail({
+            order: order({ subtotal: 996, taxAmount: 49.8, grandTotal: 1045.8 }),
+            bookingsData: [entry(), entry(second, 'Birthday Package')],
+        });
+        expect(html()).toContain('Pottery Wheel Experience: Ceramic Clay - Adults (3 guests)');
+        expect(html()).toContain('Birthday Package: Air-Dry Clay (1 guest)');
+        expect(html()).toContain('1045.80 AED');
+    });
+    it('a voucher bought in the same order is one line, so the lines add up', async () => {
+        await mail.sendPriveBookingConfirmationMail({
+            order: order({ subtotal: 996, taxAmount: 49.8, grandTotal: 1045.8 }),
+            bookingsData: [entry()],
+        });
+        expect(html()).toContain('Gift vouchers (sent in a separate email)');
+        expect(html()).toContain('249.00 AED');
     });
     it('an order with only a total keeps its single "Amount" line', async () => {
         await mail.sendPriveBookingConfirmationMail({
@@ -264,38 +280,6 @@ describe('standard booking confirmation: Family Pottery Workshop', () => {
         expect(html()).not.toContain('Wheel Pottery sessions');
         expect(html()).not.toContain('Handbuilding sessions');
     });
-    it('shows the package and the extra adult as their own price lines, adding up to the total', async () => {
-        await send([airDryWheel, terracottaHand]);
-        const h = html();
-        // the clay as a heading, then the party the package covers, then the extra adult
-        expect(rows()).toMatch(/Payment[\s|]*Air-Dry Clay[\s|]*&nbsp;&nbsp;1 Adult \+ 1 Child[\s|]*400\.00 AED[\s|]*&nbsp;&nbsp;Extra Adult[\s|]*235\.00 AED/);
-        expect(rows()).toMatch(/Terracotta Clay[\s|]*&nbsp;&nbsp;1 Adult \+ 1 Child[\s|]*450\.00 AED[\s|]*&nbsp;&nbsp;Extra Adult[\s|]*245\.00 AED/);
-        // the clay name is not repeated on every line
-        expect(h).not.toContain('Air-Dry Clay Extra Adult');
-        expect(h).not.toContain('Air-Dry Clay (1 Adult + 1 Child)');
-        expect(h).toContain('VAT (5%)');
-        expect(h).toContain('1396.50 AED');
-        // 400 + 235 + 450 + 245 = 1330, the order's subtotal
-        expect(400 + 235 + 450 + 245).toBe(1330);
-    });
-    it('says "× 2" when an extra is charged twice', async () => {
-        const twoKidsExtra = {
-            ...terracottaHand,
-            people: 5,
-            adult: 2,
-            child: 3,
-            subtotal: 450 + 245 + 2 * 175,
-            priceBreakdown: [
-                { label: 'Terracotta Clay (1 Adult + 1 Child)', unitPrice: 450, quantity: 1, amount: 450 },
-                { label: 'Terracotta Clay Extra Adult', unitPrice: 245, quantity: 1, amount: 245 },
-                { label: 'Terracotta Clay Extra Child', unitPrice: 175, quantity: 2, amount: 350 },
-            ],
-        };
-        await send([twoKidsExtra], { subtotal: 1045, taxAmount: 52.25, grandTotal: 1097.25 });
-        expect(html()).toContain('&nbsp;&nbsp;Extra Child &times; 2');
-        expect(html()).toContain('350.00 AED');
-        expect(rows()).toMatch(/2 Adults, 3 Kids/);
-    });
     it('uses the singular for one adult or one kid, and leaves out a group that is not there', async () => {
         for (const [adult, child, expected] of [
             [1, 1, '1 Adult, 1 Kid'],
@@ -312,23 +296,16 @@ describe('standard booking confirmation: Family Pottery Workshop', () => {
         expect(rows()).toMatch(/Air-Dry Clay[\s|]*2 Adults, 1 Kid/);
         expect(html()).not.toContain('&ndash;');
     });
-    it('falls back to one price line when there is no saved breakdown, or it does not add up', async () => {
-        await send([{ ...airDryWheel, priceBreakdown: undefined }], { subtotal: 635, taxAmount: 31.75, grandTotal: 666.75 });
-        expect(html()).toContain('Air-Dry Clay (3 guests)');
-        expect(html()).toContain('635.00 AED');
-        mailService_1.sendEmail.mockClear();
-        await send([{ ...airDryWheel, subtotal: 999 }], { subtotal: 999, taxAmount: 49.95, grandTotal: 1048.95 });
-        expect(html()).toContain('Air-Dry Clay (3 guests)');
-        expect(html()).not.toContain('Air-Dry Clay Extra Adult');
-    });
-    it('writes breakdown labels as text, never as markup', async () => {
-        const bad = { ...airDryWheel, priceBreakdown: [
-            { label: '<i onmouseover=x>Pack</i>', unitPrice: 400, quantity: 1, amount: 400 },
-            { label: 'Extra', unitPrice: 235, quantity: 1, amount: 235 },
-        ] };
-        await send([bad], { subtotal: 635, taxAmount: 31.75, grandTotal: 666.75 });
-        expect(html()).not.toContain('<i onmouseover');
-        expect(html()).toContain('&lt;i onmouseover=x&gt;Pack&lt;/i&gt;');
+    it("the payment section is only the total, the date and the reference, for a family too", async () => {
+        await send([airDryWheel, terracottaHand]);
+        const text = rows();
+        const section = text.slice(text.indexOf('Payment|'), text.indexOf('Location'));
+        expect(section).toMatch(/Total paid[\s|]*1396\.50 AED/);
+        expect(section).toMatch(/Payment date/);
+        expect(section).toMatch(/Payment reference/);
+        for (const gone of ['VAT', 'Subtotal', 'Extra Adult', '1 Adult + 1 Child', '400.00', '235.00', '450.00', '245.00']) {
+            expect(section).not.toContain(gone);
+        }
     });
     it('leaves Birthday and ordinary bookings alone: no adults or kids, so no family wording', async () => {
         await mail.sendWorkshopBookingConfirmationMail({
