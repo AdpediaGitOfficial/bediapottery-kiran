@@ -116,7 +116,7 @@ describe('standard booking confirmation: payment', () => {
             voucherCode: 'BP966FD45A',
         });
         expect(html()).toContain('BP966FD45A');
-        expect(html()).toContain('Paid by gift voucher');
+        expect(html()).toContain('Gift Voucher Redeemed');
         expect(html()).not.toContain('Total paid');
         expect(html()).not.toContain('784.35');
     });

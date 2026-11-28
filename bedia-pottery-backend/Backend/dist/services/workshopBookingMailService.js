@@ -193,7 +193,7 @@ const sendWorkshopBookingConfirmationMail = async ({ order, bookingsData, to, cc
             ? ''
             : `<tr>
                   <td width="45%" class="row-label text-strong" style="padding:3px 15px 3px 0;color:#000000;vertical-align:top;">${voucherCode ? 'Payment' : 'Amount Paid'}</td>
-                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${voucherCode ? 'Paid by gift voucher' : `${order.grandTotal} AED`}</td>
+                  <td align="left" class="row-value text-strong" style="word-break:break-word;padding:3px 0;color:#000000;font-weight:700;vertical-align:top;">${voucherCode ? 'Gift Voucher Redeemed' : `${order.grandTotal} AED`}</td>
                 </tr>`;
         const workshopSections = bookingsData
             .map(({ booking, workshop, slot }) => {

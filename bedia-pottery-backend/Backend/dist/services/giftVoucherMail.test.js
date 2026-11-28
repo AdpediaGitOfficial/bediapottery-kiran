@@ -110,7 +110,7 @@ describe('standard booking confirmation after a voucher is redeemed', () => {
         expect(html()).toContain('BP966FD45A');
         expect(html()).toContain('6:00 PM - 7:30 PM');
         expect(html()).toContain('January 15, 2027');
-        expect(html()).toContain('Paid by gift voucher');
+        expect(html()).toContain('Gift Voucher Redeemed');
         expect(html()).not.toContain('249 AED');
         expect(sent()[5]).toEqual(['sara@example.com']);
     });
