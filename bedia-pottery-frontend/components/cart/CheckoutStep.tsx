@@ -14,6 +14,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 import { getCartTotals } from "@/utils/cartTotals";
 import { getCheckoutKey } from "@/utils/checkoutKey";
+import { buildCheckoutWorkshops } from "@/utils/checkoutPayload";
 
 interface CheckoutFormData {
   firstName: string;
@@ -330,51 +331,7 @@ export default function CheckoutStep({
   };
 
   const buildCheckoutPayload = (): CheckoutPayload => {
-    const workshopMap = new Map<
-      string,
-      CheckoutPayload["workshops"][0]
-    >();
-    let giftIndex = 0;
-
-    data.forEach((cart) => {
-      cart.items.forEach((item) => {
-        const isGift = item.bookingType === "gift";
-        const key = isGift
-          ? `gift-${giftIndex++}`
-          : `${item.workshopId._id}|${item.bookingDate}|${item.slotId}`;
-
-        const existing = workshopMap.get(key);
-
-        const workshopItem = {
-  optionId: item.optionId,
-  people: item.people,
-  ...(item.workshopType && { workshopType: item.workshopType }),
-  ...(item.adult != null && { adult: item.adult }),
-  ...(item.child != null && { child: item.child }),
-  ...(item.handBuild != null && { handBuild: item.handBuild }),
-  ...(item.wheelPottery != null && { wheelPottery: item.wheelPottery }),
-};
-
-        if (existing) {
-          existing.items.push(workshopItem);
-        } else {
-          const workshopPayload: CheckoutPayload["workshops"][0] = {
-            workshopId: item.workshopId._id,
-            bookingType: item.bookingType,
-            items: [workshopItem],
-          };
-
-          if (!isGift) {
-            workshopPayload.bookingDate = item.bookingDate;
-            workshopPayload.slotId = item.slotId;
-          }
-
-          workshopMap.set(key, workshopPayload);
-        }
-      });
-    });
-
-    const workshops = Array.from(workshopMap.values());
+    const workshops = buildCheckoutWorkshops(data);
 
     return {
       // Same cart => same key, so a repeat submit gets the first order back.

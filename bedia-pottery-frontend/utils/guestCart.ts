@@ -170,6 +170,8 @@ export function guestCartToCartData(
     handBuild:
       item.display.handBuild ??
       item.bookingData.handBuild,
+
+    giftDetails: item.bookingData.giftDetails,
   }))
 
   const totalAmount = cartItems.reduce(

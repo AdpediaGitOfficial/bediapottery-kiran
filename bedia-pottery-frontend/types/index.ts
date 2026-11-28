@@ -171,12 +171,20 @@ export interface CheckoutWorkshopItem {
   people: number;
 }
 
+/** What the customer typed for a gift: the occasion and the message for the voucher. */
+export interface GiftDetailsPayload {
+  occasion?: string;
+  personalMessage?: string;
+}
+
 export interface CheckoutWorkshopPayload {
   workshopId: string;
   bookingDate?: string;
   bookingType?: string;
   slotId?: string;
   items: CheckoutWorkshopItem[];
+  /** Sent for a gift only: its message ends up on the voucher. */
+  giftDetails?: GiftDetailsPayload;
 }
 
 export interface CheckoutCustomerPayload {

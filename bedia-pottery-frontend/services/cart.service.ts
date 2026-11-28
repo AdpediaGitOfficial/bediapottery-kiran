@@ -32,6 +32,8 @@ export interface CartItem {
   currency: string;
   wheelPottery?: number;
   handBuild?: number;
+  /** For a gift: the occasion and the message the customer wrote for the voucher. */
+  giftDetails?: { occasion?: string; personalMessage?: string };
 }
 
 export interface CartData {
