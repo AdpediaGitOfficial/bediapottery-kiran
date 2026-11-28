@@ -267,14 +267,12 @@ describe('standard booking confirmation: Family Pottery Workshop', () => {
     it('shows the package and the extra adult as their own price lines, adding up to the total', async () => {
         await send([airDryWheel, terracottaHand]);
         const h = html();
-        expect(h).toContain('Air-Dry Clay (1 Adult + 1 Child)');
-        expect(h).toContain('400.00 AED');
-        expect(h).toContain('Air-Dry Clay Extra Adult');
-        expect(h).toContain('235.00 AED');
-        expect(h).toContain('Terracotta Clay (1 Adult + 1 Child)');
-        expect(h).toContain('450.00 AED');
-        expect(h).toContain('Terracotta Clay Extra Adult');
-        expect(h).toContain('245.00 AED');
+        // the clay as a heading, then the party the package covers, then the extra adult
+        expect(rows()).toMatch(/Payment[\s|]*Air-Dry Clay[\s|]*&nbsp;&nbsp;1 Adult \+ 1 Child[\s|]*400\.00 AED[\s|]*&nbsp;&nbsp;Extra Adult[\s|]*235\.00 AED/);
+        expect(rows()).toMatch(/Terracotta Clay[\s|]*&nbsp;&nbsp;1 Adult \+ 1 Child[\s|]*450\.00 AED[\s|]*&nbsp;&nbsp;Extra Adult[\s|]*245\.00 AED/);
+        // the clay name is not repeated on every line
+        expect(h).not.toContain('Air-Dry Clay Extra Adult');
+        expect(h).not.toContain('Air-Dry Clay (1 Adult + 1 Child)');
         expect(h).toContain('VAT (5%)');
         expect(h).toContain('1396.50 AED');
         // 400 + 235 + 450 + 245 = 1330, the order's subtotal
@@ -294,7 +292,7 @@ describe('standard booking confirmation: Family Pottery Workshop', () => {
             ],
         };
         await send([twoKidsExtra], { subtotal: 1045, taxAmount: 52.25, grandTotal: 1097.25 });
-        expect(html()).toContain('Terracotta Clay Extra Child &times; 2');
+        expect(html()).toContain('&nbsp;&nbsp;Extra Child &times; 2');
         expect(html()).toContain('350.00 AED');
         expect(rows()).toMatch(/2 Adults, 3 Kids/);
     });

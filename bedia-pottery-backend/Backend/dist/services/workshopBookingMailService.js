@@ -64,6 +64,23 @@ const familyBreakdown = (item) => {
     return Math.abs(total - Number(item.subtotal)) <= 0.01 ? entries : [];
 };
 /**
+ * The short name of a breakdown line under its clay: "Air-Dry Clay (1 Adult + 1
+ * Child)" becomes "1 Adult + 1 Child", and "Air-Dry Clay Extra Adult" becomes "Extra
+ * Adult". A label that does not start with the clay's name is kept whole.
+ */
+const shortBreakdownLabel = (label, clayTitle) => {
+    const full = String(label ?? '').trim();
+    const clay = String(clayTitle ?? '').trim();
+    if (!clay || !full.toLowerCase().startsWith(clay.toLowerCase()))
+        return full;
+    const rest = full
+        .slice(clay.length)
+        .trim()
+        .replace(/^\((.*)\)$/, '$1')
+        .trim();
+    return rest || full;
+};
+/**
  * An Air-Dry Clay package says how many Wheel Pottery sessions and how many
  * Handbuilding sessions the customer chose. Both counts are always shown together,
  * a zero included, so the customer sees the whole split. A booking that carries no
@@ -125,10 +142,13 @@ const buildPaymentRows = ({ order, bookingsData, row }) => {
             const prefix = several && workshop?.title ? `${escapeHtml(workshop.title)}: ` : '';
             const breakdown = familyBreakdown(item);
             if (breakdown.length) {
-                // The package and each extra adult or kid, so the lines add up.
+                // The clay as a heading, then "1 Adult + 1 Child" and each extra adult
+                // or child under it, so the lines add up to the line's price.
+                lines.push(row(`${prefix}${escapeHtml(item.optionTitle || 'Booking')}`, '', true));
                 for (const entry of breakdown) {
                     const times = Number(entry.quantity) > 1 ? ` &times; ${Number(entry.quantity)}` : '';
-                    lines.push(row(`${prefix}${escapeHtml(entry.label)}${times}`, formatMoney(entry.amount, currency)));
+                    const label = shortBreakdownLabel(entry.label, item.optionTitle);
+                    lines.push(row(`&nbsp;&nbsp;${escapeHtml(label)}${times}`, formatMoney(entry.amount, currency)));
                 }
                 continue;
             }
