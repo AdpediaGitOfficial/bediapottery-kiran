@@ -14,9 +14,9 @@ const configKeys_1 = __importDefault(require("../configKeys"));
 const buildPasswordResetMail = ({ to, name, resetLink, variant = 'customer', }) => {
     const logoUrl = `${process.env.BASE_URL}/uploads/logo/logo.png`;
     const logoIconUrl = `${process.env.BASE_URL}/uploads/logo/bediaprive_logo_icon.svg?v=4`;
-    const instagramIcon = `${process.env.BASE_URL}/uploads/logo/instagram.svg?v=5`;
-    const tiktokIcon = `${process.env.BASE_URL}/uploads/logo/tiktok.svg?v=5`;
-    const youtubeIcon = `${process.env.BASE_URL}/uploads/logo/youtube.svg?v=5`;
+    const instagramIcon = `${process.env.BASE_URL}/uploads/logo/instagram.png?v=5`;
+    const tiktokIcon = `${process.env.BASE_URL}/uploads/logo/tiktok.png?v=5`;
+    const youtubeIcon = `${process.env.BASE_URL}/uploads/logo/youtube.png?v=5`;
     const logoIconDarkUrl = `${process.env.BASE_URL}/uploads/logo/bediaprive-logo-icon-dark.png?v=2`;
     const instagramIconDark = `${process.env.BASE_URL}/uploads/logo/instagram-dark.svg?v=2`;
     const tiktokIconDark = `${process.env.BASE_URL}/uploads/logo/tiktok-dark.svg?v=2`;
